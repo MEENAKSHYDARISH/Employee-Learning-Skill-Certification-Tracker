@@ -1,3 +1,137 @@
+import { Amplify } from 'aws-amplify';
+import { signIn, signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+
+Amplify.configure({
+  Auth: {
+    Cognito: {
+      userPoolId: 'ap-south-1_OuutbLcox',       // from Cognito console
+      userPoolClientId: '1ju1f0luarghoud499amanijm2',     // App client ID
+      loginWith: {
+        email: true
+      }
+    }
+  }
+});
+
+async function requireAuth(requiredRole = null) {
+  try {
+    const user = await getCurrentUser();
+    const session = await fetchAuthSession();
+    const groups = session.tokens.idToken.payload['cognito:groups'] || [];
+
+    // Role check 
+    if (requiredRole === 'admin' && !groups.includes('HRAdmin')) {
+      alert('Unauthorized - HRAdmin group required');
+      window.location.href = '/index.html';
+      return null;
+    }
+
+    return { userId: user.userId, username: user.username, groups };
+  } catch {
+    // Not signed in
+    window.location.href = '/index.html';
+    return null;
+  }
+}
+
+async function login(email, password) {
+  try {
+    const { isSignedIn, nextStep } = await signIn({
+      username: email,
+      password: password
+    });
+
+    if (nextStep.signInStep === 'DONE') {
+      // Get the JWT tokens
+      const session = await fetchAuthSession();
+      const idToken = session.tokens.idToken.toString();
+      const accessToken = session.tokens.accessToken.toString();
+
+      // Store in sessionStorage (clears when tab closes)
+      // Never use localStorage for tokens — persists after browser close
+      sessionStorage.setItem('idToken', idToken);
+      sessionStorage.setItem('accessToken', accessToken);
+
+      // Extract user role from IdToken claims
+      const claims = session.tokens.idToken.payload;
+      const groups = claims['cognito:groups'] || [];
+      const role = groups.includes('HRAdmin') ? 'admin' : 'employee';
+
+      return { success: true, role, userId: claims.sub };
+    }
+
+    // Handle MFA or new password required
+    if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+      return { success: false, requiresNewPassword: true };
+    }
+
+  } catch (error) {
+    if (error.name === 'NotAuthorizedException') {
+      return { success: false, message: 'Incorrect email or password' };
+    }
+    if (error.name === 'UserNotConfirmedException') {
+      return { success: false, message: 'Please verify your email first' };
+    }
+    return { success: false, message: error.message };
+  }
+}
+
+async function refreshTokens() {
+  try {
+    // Passing forceRefresh: true forces Amplify to call Cognito
+    // even if it thinks the token is still valid
+    const session = await fetchAuthSession({ forceRefresh: true });
+    
+    const newAccessToken = session.tokens.accessToken.toString();
+    const newIdToken = session.tokens.idToken.toString();
+    
+    sessionStorage.setItem('accessToken', newAccessToken);
+    sessionStorage.setItem('idToken', newIdToken);
+    
+    return true;
+  } catch (error) {
+    // Refresh token also expired (default: 30 days)
+    // User must log in again
+    sessionStorage.clear();
+    return false;
+  }
+}
+
+async function apiCall(path, method = 'GET', body = null) {
+  const accessToken = sessionStorage.getItem('accessToken');
+  
+  // Check if token exists
+  if (!accessToken) {
+    window.location.href = '/index.html';
+    return null;
+  }
+
+  const options = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    }
+  };
+
+  if (body) options.body = JSON.stringify(body);
+
+  const res = await fetch(`https://your-api-id.execute-api.us-east-1.amazonaws.com/prod${path}`, options);
+
+  // Token expired → refresh and retry once
+  if (res.status === 401) {
+    const refreshed = await refreshTokens();
+    if (refreshed) {
+      return apiCall(path, method, body); // retry with new token
+    } else {
+      window.location.href = '/index.html';
+      return null;
+    }
+  }
+
+  return res.json();
+}
+
 // Utility: SHA-256 Hash
 async function hashString(str) {
     const encoder = new TextEncoder();
@@ -72,7 +206,36 @@ const UI = {
 async function initApp() {
     await seedData();
     setupEventListeners();
-    showView('login');
+    
+    // Check if the user is already authenticated and has valid tokens
+    const authUser = await requireAuth();
+    if (authUser) {
+        const role = authUser.groups.includes('HRAdmin') ? 'admin' : 'employee';
+        let user = state.users.find(u => u.id === authUser.userId);
+        if (!user) {
+            user = { id: authUser.userId, name: authUser.username || 'User', email: authUser.username, role: role, asDept: 'Engineering' };
+            state.users.push(user);
+        } else {
+            user.role = role;
+        }
+        state.currentUser = user;
+        
+        if (role === 'admin') {
+            if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
+                window.location.href = '/admin/dashboard.html';
+            }
+        } else {
+            if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
+                window.location.href = '/employee/courses.html';
+            }
+        }
+    } else {
+        if (!window.location.pathname.endsWith('index.html') && window.location.pathname !== '/' && window.location.pathname !== '') {
+            window.location.href = '/index.html';
+        } else {
+            showView('login');
+        }
+    }
 }
 
 // Seed Data helper
@@ -215,30 +378,61 @@ function showView(viewName) {
 }
 
 // Auth
-function handleLogin(e) {
-    e.preventDefault();
-    const email = document.getElementById('email').value;
-    const user = state.users.find(u => u.email === email);
-    
-    if (user) {
-        state.currentUser = user;
-        showToast(`Logged in as ${user.name}`);
-        if (user.role === 'admin') {
-            UI.admin.userName.textContent = user.name;
-            showView('admin');
-        } else {
-            UI.employee.userName.textContent = user.name;
-            showView('employee');
-        }
+async function handleLogin(e) {
+  e.preventDefault();
+  
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const errorDiv = document.getElementById('error-message');
+  const btn = document.getElementById('login-btn');
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+  if (errorDiv) errorDiv.textContent = '';
+
+  // Call Cognito login
+  const result = await login(email, password);
+
+  if (result.success) {
+    // Map to existing mock user or create a temporary one for the UI state
+    let user = state.users.find(u => u.email === email);
+    if (!user) {
+        user = { id: result.userId, name: email.split('@')[0], email: email, role: result.role, asDept: 'Engineering' };
+        state.users.push(user);
     } else {
-        alert("Invalid mock user email.");
+        user.role = result.role; // sync role with Cognito
     }
+    
+    state.currentUser = user;
+    if (errorDiv) errorDiv.textContent = '';
+    
+    // Redirect based on role
+    if (result.role === 'admin') {
+      window.location.href = '/admin/dashboard.html';
+    } else {
+      window.location.href = '/employee/courses.html';
+    }
+    
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  } else {
+    if (errorDiv) errorDiv.textContent = result.message || 'Login failed';
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
 }
 
-function handleLogout() {
+async function handleLogout() {
+    try {
+        await signOut();
+    } catch (e) {
+        console.error("Sign out error", e);
+    }
+    sessionStorage.removeItem('idToken');
+    sessionStorage.removeItem('accessToken');
+
     state.currentUser = null;
-    document.getElementById('login-form').reset();
-    showView('login');
+    window.location.href = '/index.html';
 }
 
 /* ====================================
