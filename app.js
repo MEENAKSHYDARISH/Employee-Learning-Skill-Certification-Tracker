@@ -20,7 +20,8 @@ async function requireAuth(requiredRole = null) {
         const groups = session.tokens.idToken.payload['cognito:groups'] || [];
 
         // Role check 
-        if (requiredRole === 'admin' && !groups.includes('HRAdmin')) {
+        const isAdmin = groups.some(g => g.toLowerCase().includes('hr') || g.toLowerCase().includes('admin'));
+        if (requiredRole === 'admin' && !isAdmin) {
             alert('Unauthorized - HRAdmin group required');
             showView('login');
             return null;
@@ -54,7 +55,8 @@ async function login(email, password) {
             // Extract user role from IdToken claims
             const claims = session.tokens.idToken.payload;
             const groups = claims['cognito:groups'] || [];
-            const role = groups.includes('HRAdmin') ? 'admin' : 'employee';
+            const isAdmin = groups.some(g => g.toLowerCase().includes('hr') || g.toLowerCase().includes('admin'));
+            const role = isAdmin ? 'admin' : 'employee';
 
             return { success: true, role, userId: claims.sub };
         }
@@ -194,7 +196,8 @@ async function initApp() {
     // Check if the user is already authenticated and has valid tokens
     const authUser = await requireAuth();
     if (authUser) {
-        const role = authUser.groups.includes('HRAdmin') ? 'admin' : 'employee';
+        const isAdmin = authUser.groups.some(g => g.toLowerCase().includes('hr') || g.toLowerCase().includes('admin'));
+        const role = isAdmin ? 'admin' : 'employee';
         let profile = null;
         try {
             profile = await apiCall(`/users/${authUser.userId}`);
@@ -453,9 +456,9 @@ async function handleLogin(e) {
         try {
             const confirmResult = await confirmSignIn({ challengeResponse: newPassword });
             if (confirmResult.nextStep.signInStep === 'DONE') {
-                alert("Password updated successfully! Please click 'Sign In' to login with your newly set password.");
-                // We'll require them to click sign in again with the new password
-                document.getElementById('password').value = newPassword;
+                alert("Password updated successfully! You will now be logged into the dashboard.");
+                window.location.reload();
+                return;
             } else {
                 if (errorDiv) errorDiv.textContent = 'Further action required. Please check Cognito configuration.';
             }
