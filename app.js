@@ -1,135 +1,119 @@
 import { Amplify } from 'aws-amplify';
-import { signIn, signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+import { signIn, confirmSignIn, signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 
 Amplify.configure({
-  Auth: {
-    Cognito: {
-      userPoolId: 'ap-south-1_OuutbLcox',       // from Cognito console
-      userPoolClientId: '1ju1f0luarghoud499amanijm2',     // App client ID
-      loginWith: {
-        email: true
-      }
+    Auth: {
+        Cognito: {
+            userPoolId: 'ap-south-1_OuutbLcox',       // from Cognito console
+            userPoolClientId: '1ju1f0luarghoud499amanijm2',     // App client ID
+            loginWith: {
+                email: true
+            }
+        }
     }
-  }
 });
 
 async function requireAuth(requiredRole = null) {
-  try {
-    const user = await getCurrentUser();
-    const session = await fetchAuthSession();
-    const groups = session.tokens.idToken.payload['cognito:groups'] || [];
+    try {
+        const user = await getCurrentUser();
+        const session = await fetchAuthSession();
+        const groups = session.tokens.idToken.payload['cognito:groups'] || [];
 
-    // Role check 
-    if (requiredRole === 'admin' && !groups.includes('HRAdmin')) {
-      alert('Unauthorized - HRAdmin group required');
-      window.location.href = '/index.html';
-      return null;
+        // Role check 
+        if (requiredRole === 'admin' && !groups.includes('HRAdmin')) {
+            alert('Unauthorized - HRAdmin group required');
+            showView('login');
+            return null;
+        }
+
+        return { userId: user.userId, username: user.username, groups };
+    } catch {
+        // Not signed in
+        return null;
     }
-
-    return { userId: user.userId, username: user.username, groups };
-  } catch {
-    // Not signed in
-    window.location.href = '/index.html';
-    return null;
-  }
 }
 
 async function login(email, password) {
-  try {
-    const { isSignedIn, nextStep } = await signIn({
-      username: email,
-      password: password
-    });
+    try {
+        const { isSignedIn, nextStep } = await signIn({
+            username: email,
+            password: password
+        });
 
-    if (nextStep.signInStep === 'DONE') {
-      // Get the JWT tokens
-      const session = await fetchAuthSession();
-      const idToken = session.tokens.idToken.toString();
-      const accessToken = session.tokens.accessToken.toString();
+        if (nextStep.signInStep === 'DONE') {
+            // Get the JWT tokens
+            const session = await fetchAuthSession();
+            const idToken = session.tokens.idToken.toString();
+            const accessToken = session.tokens.accessToken.toString();
 
-      // Store in sessionStorage (clears when tab closes)
-      // Never use localStorage for tokens — persists after browser close
-      sessionStorage.setItem('idToken', idToken);
-      sessionStorage.setItem('accessToken', accessToken);
+            // Store in sessionStorage (clears when tab closes)
+            // Never use localStorage for tokens — persists after browser close
+            sessionStorage.setItem('idToken', idToken);
+            sessionStorage.setItem('accessToken', accessToken);
 
-      // Extract user role from IdToken claims
-      const claims = session.tokens.idToken.payload;
-      const groups = claims['cognito:groups'] || [];
-      const role = groups.includes('HRAdmin') ? 'admin' : 'employee';
+            // Extract user role from IdToken claims
+            const claims = session.tokens.idToken.payload;
+            const groups = claims['cognito:groups'] || [];
+            const role = groups.includes('HRAdmin') ? 'admin' : 'employee';
 
-      return { success: true, role, userId: claims.sub };
+            return { success: true, role, userId: claims.sub };
+        }
+
+        // Handle MFA or new password required
+        if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+            return { success: false, requiresNewPassword: true };
+        }
+
+    } catch (error) {
+        console.error('AWS Cognito login error:', error);
+        if (error.name === 'NotAuthorizedException') {
+            return { success: false, message: 'Incorrect email or password' };
+        }
+        if (error.name === 'UserNotConfirmedException') {
+            return { success: false, message: 'Please verify your email first' };
+        }
+
+        // Convert error to a string if it doesn't have a message property
+        let errorMsg = error.message || String(error);
+        if (typeof error === 'object') {
+            try { errorMsg = errorMsg + " - " + JSON.stringify(error); } catch (e) { }
+        }
+
+        return { success: false, message: errorMsg };
     }
-
-    // Handle MFA or new password required
-    if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
-      return { success: false, requiresNewPassword: true };
-    }
-
-  } catch (error) {
-    if (error.name === 'NotAuthorizedException') {
-      return { success: false, message: 'Incorrect email or password' };
-    }
-    if (error.name === 'UserNotConfirmedException') {
-      return { success: false, message: 'Please verify your email first' };
-    }
-    return { success: false, message: error.message };
-  }
-}
-
-async function refreshTokens() {
-  try {
-    // Passing forceRefresh: true forces Amplify to call Cognito
-    // even if it thinks the token is still valid
-    const session = await fetchAuthSession({ forceRefresh: true });
-    
-    const newAccessToken = session.tokens.accessToken.toString();
-    const newIdToken = session.tokens.idToken.toString();
-    
-    sessionStorage.setItem('accessToken', newAccessToken);
-    sessionStorage.setItem('idToken', newIdToken);
-    
-    return true;
-  } catch (error) {
-    // Refresh token also expired (default: 30 days)
-    // User must log in again
-    sessionStorage.clear();
-    return false;
-  }
 }
 
 async function apiCall(path, method = 'GET', body = null) {
-  const accessToken = sessionStorage.getItem('accessToken');
-  
-  // Check if token exists
-  if (!accessToken) {
-    window.location.href = '/index.html';
-    return null;
-  }
-
-  const options = {
-    method,
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+    let session;
+    try {
+        session = await fetchAuthSession();
+    } catch (e) {
+        // User not authenticated or session perfectly expired
+        showView('login');
+        return null;
     }
-  };
 
-  if (body) options.body = JSON.stringify(body);
+    const accessToken = session.tokens.accessToken.toString();
 
-  const res = await fetch(`https://your-api-id.execute-api.us-east-1.amazonaws.com/prod${path}`, options);
+    const options = {
+        method,
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        }
+    };
 
-  // Token expired → refresh and retry once
-  if (res.status === 401) {
-    const refreshed = await refreshTokens();
-    if (refreshed) {
-      return apiCall(path, method, body); // retry with new token
-    } else {
-      window.location.href = '/index.html';
-      return null;
+    if (body) options.body = JSON.stringify(body);
+
+    const res = await fetch(`https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod/users${path}`, options);
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`API error ${res.status}: ${text}`);
     }
-  }
 
-  return res.json();
+    const resText = await res.text();
+    return resText ? JSON.parse(resText) : {};
 }
 
 // Utility: SHA-256 Hash
@@ -206,27 +190,47 @@ const UI = {
 async function initApp() {
     await seedData();
     setupEventListeners();
-    
+
     // Check if the user is already authenticated and has valid tokens
     const authUser = await requireAuth();
     if (authUser) {
         const role = authUser.groups.includes('HRAdmin') ? 'admin' : 'employee';
+        let profile = null;
+        try {
+            profile = await apiCall(`/users/${authUser.userId}`);
+        } catch (e) {
+            console.warn("Could not load user profile from DynamoDB. Using defaults.", e);
+        }
+
         let user = state.users.find(u => u.id === authUser.userId);
         if (!user) {
-            user = { id: authUser.userId, name: authUser.username || 'User', email: authUser.username, role: role, asDept: 'Engineering' };
+            user = {
+                id: authUser.userId,
+                name: profile?.name || authUser.username || 'User',
+                email: authUser.username,
+                role: role,
+                asDept: profile?.department || profile?.asDept || 'Engineering',
+                manager: profile?.manager || 'N/A',
+                joiningDate: profile?.joiningDate || 'N/A',
+                employmentType: profile?.employmentType || 'Full-time'
+            };
             state.users.push(user);
         } else {
             user.role = role;
+            if (profile) {
+                user.name = profile.name || user.name;
+                user.asDept = profile.department || profile.asDept || user.asDept;
+            }
         }
         state.currentUser = user;
-        
+
         if (role === 'admin') {
             if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
-                window.location.href = '/admin/dashboard.html';
+                showView('admin');
             }
         } else {
             if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
-                window.location.href = '/employee/courses.html';
+                showView('employee');
             }
         }
     } else {
@@ -241,11 +245,11 @@ async function initApp() {
 // Seed Data helper
 async function seedData() {
     console.log("Seeding data...");
-    
+
     // Hash answers for initial courses
     const q1aA = await hashString("Amazon Web Services");
     const q1aB = await hashString("A cloud platform");
-    
+
     const course1 = {
         id: 'c1',
         title: 'AWS Fundamentals',
@@ -263,7 +267,7 @@ async function seedData() {
         id: 'c2',
         title: 'Data Privacy Basics',
         description: 'Essential facts about GDPR and PII handling.',
-        videoUrl: 'https://www.youtube.com/embed/PZ5Xf4zOf3w', 
+        videoUrl: 'https://www.youtube.com/embed/PZ5Xf4zOf3w',
         passingScore: 66,
         roles: ['Engineering', 'Marketing'],
         questions: [
@@ -290,7 +294,7 @@ async function seedData() {
     // Seed assignments
     let twoDaysAgo = new Date(); twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
     let nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
-    
+
     state.assignments = [
         { id: 'a1', courseId: 'c1', userId: 'u2', status: 'Passed', dueDate: nextWeek.toISOString().split('T')[0], attempts: 1, score: 100 },
         { id: 'a2', courseId: 'c2', userId: 'u2', status: 'In Progress', dueDate: nextWeek.toISOString().split('T')[0], attempts: 0 },
@@ -310,7 +314,7 @@ async function seedData() {
 function setupEventListeners() {
     // Login
     document.getElementById('login-form').addEventListener('submit', handleLogin);
-    
+
     // Logout
     document.getElementById('hr-logout-btn').addEventListener('click', handleLogout);
     document.getElementById('emp-logout-btn').addEventListener('click', handleLogout);
@@ -360,11 +364,11 @@ function showToast(message) {
 // Navigation Helper
 function switchPanel(navItems, panelsObj, targetId) {
     navItems.forEach(nav => {
-        if(nav.dataset.target === targetId) nav.classList.add('active');
+        if (nav.dataset.target === targetId) nav.classList.add('active');
         else nav.classList.remove('active');
     });
     Object.values(panelsObj).forEach(panel => {
-        if(panel.id === targetId) panel.classList.remove('hidden');
+        if (panel.id === targetId) panel.classList.remove('hidden');
         else panel.classList.add('hidden');
     });
 }
@@ -372,54 +376,100 @@ function switchPanel(navItems, panelsObj, targetId) {
 function showView(viewName) {
     Object.values(UI.views).forEach(v => v.classList.add('hidden'));
     UI.views[viewName].classList.remove('hidden');
-    
+
     if (viewName === 'admin') initAdminDashboard();
     if (viewName === 'employee') initEmployeeDashboard();
 }
 
 // Auth
 async function handleLogin(e) {
-  e.preventDefault();
-  
-  const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').value;
-  const errorDiv = document.getElementById('error-message');
-  const btn = document.getElementById('login-btn');
+    e.preventDefault();
 
-  btn.disabled = true;
-  btn.textContent = 'Signing in...';
-  if (errorDiv) errorDiv.textContent = '';
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const errorDiv = document.getElementById('error-message');
+    const btn = document.getElementById('login-btn');
 
-  // Call Cognito login
-  const result = await login(email, password);
-
-  if (result.success) {
-    // Map to existing mock user or create a temporary one for the UI state
-    let user = state.users.find(u => u.email === email);
-    if (!user) {
-        user = { id: result.userId, name: email.split('@')[0], email: email, role: result.role, asDept: 'Engineering' };
-        state.users.push(user);
-    } else {
-        user.role = result.role; // sync role with Cognito
-    }
-    
-    state.currentUser = user;
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
     if (errorDiv) errorDiv.textContent = '';
-    
-    // Redirect based on role
-    if (result.role === 'admin') {
-      window.location.href = '/admin/dashboard.html';
+
+    // Call Cognito login
+    const result = await login(email, password);
+
+    if (result.success) {
+        btn.textContent = 'Verifying Profile Data...';
+        let profile = null;
+        try {
+            profile = await apiCall(`/users/${result.userId}`);
+        } catch (e) {
+            console.warn("Could not load user profile from DynamoDB. Using defaults.", e);
+        }
+
+        // Map to existing mock user or create a temporary one for the UI state
+        let user = state.users.find(u => u.email === email);
+        if (!user) {
+            user = {
+                id: result.userId,
+                name: profile?.name || email.split('@')[0],
+                email: email,
+                role: result.role,
+                asDept: profile?.department || profile?.asDept || 'Engineering',
+                manager: profile?.manager || 'N/A',
+                joiningDate: profile?.joiningDate || 'N/A',
+                employmentType: profile?.employmentType || 'Full-time'
+            };
+            state.users.push(user);
+        } else {
+            user.role = result.role; // sync role with Cognito
+            if (profile) {
+                user.name = profile.name || user.name;
+                user.asDept = profile.department || profile.asDept || user.asDept;
+            }
+        }
+
+        state.currentUser = user;
+        if (errorDiv) errorDiv.textContent = '';
+
+        // Redirect based on role
+        if (result.role === 'admin') {
+            showView('admin');
+        } else {
+            showView('employee');
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+    } else if (result.requiresNewPassword) {
+        const newPassword = prompt("Your administrator requires you to change your password. Please enter a new password:");
+        if (!newPassword) {
+            if (errorDiv) errorDiv.textContent = 'You must enter a new password.';
+            btn.disabled = false;
+            btn.textContent = 'Sign in';
+            return;
+        }
+
+        btn.textContent = 'Setting new password...';
+        try {
+            const confirmResult = await confirmSignIn({ challengeResponse: newPassword });
+            if (confirmResult.nextStep.signInStep === 'DONE') {
+                alert("Password updated successfully! Please click 'Sign In' to login with your newly set password.");
+                // We'll require them to click sign in again with the new password
+                document.getElementById('password').value = newPassword;
+            } else {
+                if (errorDiv) errorDiv.textContent = 'Further action required. Please check Cognito configuration.';
+            }
+        } catch (e) {
+            console.error(e);
+            if (errorDiv) errorDiv.textContent = e.message || 'Failed to update password.';
+        }
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
     } else {
-      window.location.href = '/employee/courses.html';
+        if (errorDiv) errorDiv.textContent = result.message || 'Login failed.';
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
     }
-    
-    btn.disabled = false;
-    btn.textContent = 'Sign in';
-  } else {
-    if (errorDiv) errorDiv.textContent = result.message || 'Login failed';
-    btn.disabled = false;
-    btn.textContent = 'Sign in';
-  }
 }
 
 async function handleLogout() {
@@ -540,7 +590,7 @@ function addQuestionToBuilder() {
     const qDiv = document.createElement('div');
     qDiv.className = 'question-builder-item form-grid';
     qDiv.id = `builder-q-${builderQCount}`;
-    
+
     qDiv.innerHTML = `
         <div class="input-group" style="grid-column: 1 / -1;">
             <label>Question ${builderQCount} Text</label>
@@ -578,7 +628,7 @@ async function handleCreateCourse(e) {
 
     const courseId = 'c_' + Date.now();
     const questions = [];
-    
+
     const qItems = document.querySelectorAll('.question-builder-item');
     for (let item of qItems) {
         const text = item.querySelector('.q-text').value;
@@ -586,13 +636,13 @@ async function handleCreateCourse(e) {
         const optB = item.querySelector('.q-opt-b').value;
         const optC = item.querySelector('.q-opt-c').value;
         const optD = item.querySelector('.q-opt-d').value;
-        
+
         const ansHash = await hashString(optA);
-        
+
         // Shuffle options for display 
         // We will shuffle them on render, but store them
         const options = [optA, optB, optC, optD].filter(Boolean);
-        
+
         questions.push({
             id: 'q_' + Math.random().toString(36).substr(2, 5),
             text: text,
@@ -617,7 +667,7 @@ async function handleCreateCourse(e) {
 function renderSkillGapDashboard() {
     const employees = state.users.filter(u => u.role === 'employee');
     const courses = state.courses;
-    
+
     // Matrix Table
     let tableHTML = '<thead><tr><th>Employee</th>';
     courses.forEach(c => tableHTML += `<th>${c.title}</th>`);
@@ -672,7 +722,7 @@ function renderSkillGapDashboard() {
     Object.keys(depts).forEach(dept => {
         const d = depts[dept];
         const pct = d.total === 0 ? 0 : Math.round((d.passed / d.total) * 100);
-        
+
         const row = document.createElement('div');
         row.className = 'bar-row';
         row.innerHTML = `
@@ -703,7 +753,7 @@ function initEmployeeDashboard() {
 function renderMyCourses() {
     UI.employee.coursesList.innerHTML = '';
     const myAssignments = state.assignments.filter(a => a.userId === state.currentUser.id);
-    
+
     if (myAssignments.length === 0) {
         UI.employee.coursesList.innerHTML = '<p>No courses assigned.</p>';
         return;
@@ -713,12 +763,12 @@ function renderMyCourses() {
 
     myAssignments.forEach(assignment => {
         const course = state.courses.find(c => c.id === assignment.courseId);
-        if(!course) return;
+        if (!course) return;
 
         let statusClass = 'status-grey';
-        if(assignment.status === 'Passed') statusClass = 'status-green';
-        else if(assignment.status === 'Failed') statusClass = 'status-red';
-        else if(assignment.status === 'In Progress') statusClass = 'status-blue';
+        if (assignment.status === 'Passed') statusClass = 'status-green';
+        else if (assignment.status === 'Failed') statusClass = 'status-red';
+        else if (assignment.status === 'In Progress') statusClass = 'status-blue';
 
         let isOverdue = (assignment.status !== 'Passed' && assignment.dueDate && assignment.dueDate < today);
 
@@ -731,7 +781,7 @@ function renderMyCourses() {
                 <span class="badge ${statusClass}">${assignment.status}</span>
                 <span class="due-date ${isOverdue ? 'overdue' : ''}">Due: ${assignment.dueDate || 'N/A'}</span>
             </div>
-            ${assignment.status !== 'Passed' && assignment.attempts >= 3 ? 
+            ${assignment.status !== 'Passed' && assignment.attempts >= 3 ?
                 `<button class="btn btn-secondary" disabled>Max Attempts Reached</button>` :
                 `<button class="btn btn-primary btn-view-course" data-assignment="${assignment.id}">Go to Course</button>`
             }
@@ -749,15 +799,15 @@ function renderMyCourses() {
 
 function openCourseViewer(assignmentId) {
     const assignment = state.assignments.find(a => a.id === assignmentId);
-    if(assignment.status === 'Not Started') {
+    if (assignment.status === 'Not Started') {
         assignment.status = 'In Progress'; // update status
         renderMyCourses(); // refresh ui side
     }
     const course = state.courses.find(c => c.id === assignment.courseId);
-    
+
     UI.employee.viewerTitle.textContent = course.title;
     UI.employee.videoContainer.innerHTML = `<iframe src="${course.videoUrl}" frameborder="0" allowfullscreen></iframe>`;
-    
+
     // Prepare quiz state
     state.activeQuiz = {
         assignment: assignment,
@@ -778,17 +828,17 @@ function openCourseViewer(assignmentId) {
 
 // Quiz Engine
 function startQuiz() {
-    if(!state.activeQuiz) return;
+    if (!state.activeQuiz) return;
     document.getElementById('quiz-result-container').classList.add('hidden');
     document.getElementById('quiz-question-container').classList.remove('hidden');
     document.getElementById('btn-quiz-next').classList.remove('hidden');
-    
+
     state.activeQuiz.currentQuestionIndex = 0;
     state.activeQuiz.score = 0;
     state.activeQuiz.userAnswersHash = [];
-    
+
     UI.employee.panels.quiz.querySelector('#quiz-course-title').textContent = `Quiz: ${state.activeQuiz.course.title}`;
-    
+
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-quiz-engine');
     renderQuestion();
 }
@@ -797,14 +847,14 @@ function renderQuestion() {
     const idx = state.activeQuiz.currentQuestionIndex;
     const qObj = state.activeQuiz.shuffledQuestions[idx];
     const total = state.activeQuiz.shuffledQuestions.length;
-    
+
     // progress bar
     document.getElementById('quiz-progress-fill').style.width = `${((idx) / total) * 100}%`;
 
-    document.getElementById('quiz-question-text').textContent = `Q${idx+1}: ${qObj.text}`;
+    document.getElementById('quiz-question-text').textContent = `Q${idx + 1}: ${qObj.text}`;
     const optsContainer = document.getElementById('quiz-options-group');
     optsContainer.innerHTML = '';
-    
+
     qObj.shuffledOptions.forEach((opt, i) => {
         const div = document.createElement('div');
         div.className = 'quiz-option';
@@ -840,7 +890,7 @@ async function handleNextQuestion() {
     state.activeQuiz.userAnswersHash.push(hash);
 
     state.activeQuiz.currentQuestionIndex++;
-    
+
     if (state.activeQuiz.currentQuestionIndex >= state.activeQuiz.shuffledQuestions.length) {
         finishQuiz();
     } else {
@@ -850,11 +900,11 @@ async function handleNextQuestion() {
 
 function finishQuiz() {
     document.getElementById('quiz-progress-fill').style.width = '100%';
-    
+
     // Grade hashes
     let correctCount = 0;
     const questions = state.activeQuiz.shuffledQuestions;
-    for(let i=0; i<questions.length; i++) {
+    for (let i = 0; i < questions.length; i++) {
         if (state.activeQuiz.userAnswersHash[i] === questions[i].answerHash) {
             correctCount++;
         }
@@ -862,19 +912,19 @@ function finishQuiz() {
 
     const pct = Math.round((correctCount / questions.length) * 100);
     const passed = pct >= state.activeQuiz.course.passingScore;
-    
+
     state.activeQuiz.assignment.attempts++; // increment attempt tracker
-    
+
     document.getElementById('quiz-question-container').classList.add('hidden');
     document.getElementById('btn-quiz-next').classList.add('hidden');
-    
+
     const resContainer = document.getElementById('quiz-result-container');
     resContainer.classList.remove('hidden');
-    
+
     const title = document.getElementById('quiz-result-title');
     title.textContent = passed ? 'Congratulations! You Passed.' : 'You failed the quiz.';
     title.style.color = passed ? 'var(--status-green)' : 'var(--status-red)';
-    
+
     document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${pct}%</strong> (Required: ${state.activeQuiz.course.passingScore}%)`;
     document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${state.activeQuiz.assignment.attempts} / 3`;
 
@@ -885,7 +935,7 @@ function finishQuiz() {
         generateCertificate(state.activeQuiz.course);
         showToast("Passed! Certificate generated.");
     } else {
-        if(state.activeQuiz.assignment.attempts >= 3) {
+        if (state.activeQuiz.assignment.attempts >= 3) {
             state.activeQuiz.assignment.status = 'Failed';
             document.getElementById('btn-quiz-retake').classList.add('hidden');
             showToast("Max attempts reached.");
@@ -894,7 +944,7 @@ function finishQuiz() {
         }
         state.activeQuiz.assignment.score = pct; // Keep highest? Just keep last
     }
-    
+
     renderMyCourses();
 }
 
@@ -915,7 +965,7 @@ function generateCertificate(course) {
 function renderCertificates() {
     UI.employee.certList.innerHTML = '';
     const myCerts = state.certificates.filter(c => c.userId === state.currentUser.id);
-    
+
     if (myCerts.length === 0) {
         UI.employee.certList.innerHTML = '<p>No certificates earned yet.</p>';
         return;
@@ -961,7 +1011,7 @@ function verifyCertificate(e) {
     resultDiv.style.marginTop = '1rem';
     resultDiv.style.padding = '1rem';
     resultDiv.style.borderRadius = '0.375rem';
-    
+
     const cert = state.certificates.find(c => c.id === id);
     if (cert) {
         resultDiv.style.backgroundColor = 'var(--status-green-bg)';
