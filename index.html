@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise LMS</title>
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div id="app">
         <!-- Toast Notification -->
@@ -26,7 +28,8 @@
                         <label for="password">Password</label>
                         <input type="password" id="password" required value="password123">
                     </div>
-                    <div id="error-message" style="color: var(--status-red); margin-bottom: 1rem; font-size: 0.875rem;"></div>
+                    <div id="error-message" style="color: var(--status-red); margin-bottom: 1rem; font-size: 0.875rem;">
+                    </div>
                     <button type="submit" id="login-btn" class="btn btn-primary">Sign in</button>
                     <div class="demo-hints">
                         <p>Demo Admin: admin@company.com</p>
@@ -206,7 +209,7 @@
                     <div id="certificate-list" class="certificate-grid">
                         <!-- Dynamically populated certificate cards -->
                     </div>
-                    
+
                     <div class="card mt-4">
                         <h3>Verify Certificate</h3>
                         <div class="form-grid">
@@ -261,7 +264,8 @@
                     <div id="quiz-builder-questions">
                         <!-- Questions added here dynamically -->
                     </div>
-                    <button type="button" id="btn-add-question" class="btn btn-secondary btn-small mt-2">+ Add Question</button>
+                    <button type="button" id="btn-add-question" class="btn btn-secondary btn-small mt-2">+ Add
+                        Question</button>
 
                     <div class="modal-footer mt-4">
                         <button type="button" class="btn btn-secondary modal-close">Cancel</button>
@@ -292,7 +296,17 @@
             </div>
         </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/aws-amplify@6/dist/aws-amplify.min.js"></script>
-    <script src="app.js"></script>
+
+    <!-- Import Map for AWS Amplify -->
+    <script type="importmap">
+    {
+        "imports": {
+            "aws-amplify": "https://esm.sh/aws-amplify@6",
+            "aws-amplify/auth": "https://esm.sh/aws-amplify@6/auth"
+        }
+    }
+    </script>
+    <script type="module" src="app.js"></script>
 </body>
+
 </html>
