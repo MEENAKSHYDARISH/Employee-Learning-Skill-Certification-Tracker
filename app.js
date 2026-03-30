@@ -20,7 +20,12 @@ async function requireAuth(requiredRole = null) {
         const groups = session.tokens.idToken.payload['cognito:groups'] || [];
 
         // Role check 
-        const isAdmin = groups.some(g => g.toLowerCase().includes('hr') || g.toLowerCase().includes('admin'));
+        if (!groups.includes('Employee') && !groups.includes('HRAdmin')) {
+            showView('login');
+            return null;
+        }
+
+        const isAdmin = groups.includes('HRAdmin');
         if (requiredRole === 'admin' && !isAdmin) {
             alert('Unauthorized - HRAdmin group required');
             showView('login');
@@ -55,7 +60,12 @@ async function login(email, password) {
             // Extract user role from IdToken claims
             const claims = session.tokens.idToken.payload;
             const groups = claims['cognito:groups'] || [];
-            const isAdmin = groups.some(g => g.toLowerCase().includes('hr') || g.toLowerCase().includes('admin'));
+
+            if (!groups.includes('Employee') && !groups.includes('HRAdmin')) {
+                throw new Error("Login failed: You must be assigned to the 'Employee' or 'HRAdmin' group in Cognito.");
+            }
+
+            const isAdmin = groups.includes('HRAdmin');
             const role = isAdmin ? 'admin' : 'employee';
 
             return { success: true, role, userId: claims.sub };
@@ -88,26 +98,31 @@ async function login(email, password) {
 async function apiCall(path, method = 'GET', body = null) {
     let session;
     try {
-        session = await fetchAuthSession();
+        session = await fetchAuthSession({ forceRefresh: true });
     } catch (e) {
         // User not authenticated or session perfectly expired
         showView('login');
         return null;
     }
 
-    const accessToken = session.tokens.accessToken.toString();
+    if (!session.tokens) {
+        showView('login');
+        return null;
+    }
+
+    const idToken = session.tokens.idToken.toString();
 
     const options = {
         method,
         headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': idToken,
             'Content-Type': 'application/json'
         }
     };
 
     if (body) options.body = JSON.stringify(body);
 
-    const res = await fetch(`https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod/users${path}`, options);
+    const res = await fetch(`https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod${path}`, options);
 
     if (!res.ok) {
         const text = await res.text();
@@ -193,56 +208,75 @@ async function initApp() {
     await seedData();
     setupEventListeners();
 
-    // Check if the user is already authenticated and has valid tokens
-    const authUser = await requireAuth();
-    if (authUser) {
-        const isAdmin = authUser.groups.some(g => g.toLowerCase().includes('hr') || g.toLowerCase().includes('admin'));
-        const role = isAdmin ? 'admin' : 'employee';
-        let profile = null;
-        try {
-            profile = await apiCall(`/users/${authUser.userId}`);
-        } catch (e) {
-            console.warn("Could not load user profile from DynamoDB. Using defaults.", e);
-        }
+    // Check if already authenticated
+    try {
+        const session = await fetchAuthSession({ forceRefresh: true });
 
-        let user = state.users.find(u => u.id === authUser.userId);
-        if (!user) {
-            user = {
-                id: authUser.userId,
-                name: profile?.name || authUser.username || 'User',
-                email: authUser.username,
-                role: role,
-                asDept: profile?.department || profile?.asDept || 'Engineering',
-                manager: profile?.manager || 'N/A',
-                joiningDate: profile?.joiningDate || 'N/A',
-                employmentType: profile?.employmentType || 'Full-time'
-            };
-            state.users.push(user);
-        } else {
-            user.role = role;
-            if (profile) {
-                user.name = profile.name || user.name;
-                user.asDept = profile.department || profile.asDept || user.asDept;
-            }
-        }
-        state.currentUser = user;
-
-        if (role === 'admin') {
-            if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
-                showView('admin');
-            }
-        } else {
-            if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
-                showView('employee');
-            }
-        }
-    } else {
-        if (!window.location.pathname.endsWith('index.html') && window.location.pathname !== '/' && window.location.pathname !== '') {
-            window.location.href = '/index.html';
-        } else {
+        // If no tokens, just show login
+        if (!session.tokens) {
             showView('login');
+            return;
+        }
+
+        const authUser = await requireAuth();
+        if (!authUser) {
+            showView('login');
+            return;
+        }
+
+        // Only call API if we have a confirmed valid session
+        const isAdmin = authUser.groups.includes('HRAdmin');
+        const role = isAdmin ? 'admin' : 'employee';
+
+        try {
+            const profile = await apiCall(`/users/${authUser.userId}`);
+            // profile loaded successfully
+            setupUserState(authUser, profile, role);
+        } catch (e) {
+            if (e.message.includes('404')) {
+                // User not in DynamoDB yet — create profile
+                await apiCall('/users', 'POST', {
+                    employee_id: authUser.userId,
+                    email: authUser.username,
+                    name: authUser.username,
+                    role: role,
+                    department: 'Unassigned'
+                });
+                setupUserState(authUser, null, role);
+            } else {
+                // Any other error — show login
+                showView('login');
+                return;
+            }
+        }
+
+        showView(role === 'admin' ? 'admin' : 'employee');
+
+    } catch (e) {
+        // Not authenticated at all — show login
+        showView('login');
+    }
+}
+
+function setupUserState(authUser, profile, role) {
+    let user = state.users.find(u => u.id === authUser.userId);
+    if (!user) {
+        user = {
+            id: authUser.userId,
+            name: profile?.name || authUser.username || 'User',
+            email: authUser.username,
+            role: role,
+            asDept: profile?.department || 'Engineering'
+        };
+        state.users.push(user);
+    } else {
+        user.role = role;
+        if (profile) {
+            user.name = profile.name || user.name;
+            user.asDept = profile.department || user.asDept;
         }
     }
+    state.currentUser = user;
 }
 
 // Seed Data helper
@@ -406,7 +440,28 @@ async function handleLogin(e) {
         try {
             profile = await apiCall(`/users/${result.userId}`);
         } catch (e) {
-            console.warn("Could not load user profile from DynamoDB. Using defaults.", e);
+            console.warn("Could not load user profile from DynamoDB.", e);
+            if (e.message && e.message.includes("404")) {
+                try {
+                    console.log("Profile doesn't exist yet - creating it");
+                    await apiCall(`/users`, 'POST', {
+                        employee_id: result.userId,
+                        email: email,
+                        name: email.split('@')[0],
+                        role: result.role,
+                        department: 'Unassigned'
+                    });
+                    profile = { department: 'Unassigned', manager: 'N/A', employmentType: 'Full-time' };
+                } catch (err) {
+                    console.error('Profile sync error:', err);
+                }
+            } else if (e.message && e.message.includes("401")) {
+                console.error("Token rejected by API. Check Cognito authorizer.");
+                showView('login');
+                btn.disabled = false;
+                btn.textContent = 'Sign in';
+                return;
+            }
         }
 
         // Map to existing mock user or create a temporary one for the UI state
