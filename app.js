@@ -122,7 +122,14 @@ async function apiCall(path, method = 'GET', body = null) {
 
     if (body) options.body = JSON.stringify(body);
 
-    const res = await fetch(`https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod${path}`, options);
+    // The Cognito/Users API Gateway you already pasted
+    const USERS_API_BASE_URL = 'https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod'; 
+    // TODO: Paste your new Serverless LMS (Courses & Quizzes) API Gateway URL below
+    const LMS_API_BASE_URL = 'https://yxa4h8pija.execute-api.ap-south-1.amazonaws.com/backend'; // Replace this line!
+
+    // Route requests to the correct API Gateway
+    const baseUrl = path.startsWith('/users') ? USERS_API_BASE_URL : LMS_API_BASE_URL;
+    const res = await fetch(`${baseUrl}${path}`, options);
 
     if (!res.ok) {
         const text = await res.text();
@@ -145,14 +152,7 @@ async function hashString(str) {
 // Global State
 let state = {
     currentUser: null,
-    users: [
-        { id: 'u1', name: 'HR Admin', email: 'admin@company.com', role: 'admin' },
-        { id: 'u2', name: 'Alice Smith', email: 'employee@company.com', role: 'employee', asDept: 'Engineering' },
-        { id: 'u3', name: 'Bob Jones', email: 'bob@company.com', role: 'employee', asDept: 'Engineering' },
-        { id: 'u4', name: 'Charlie Lee', email: 'charlie@company.com', role: 'employee', asDept: 'Marketing' },
-        { id: 'u5', name: 'Diana Prince', email: 'diana@company.com', role: 'employee', asDept: 'Marketing' },
-        { id: 'u6', name: 'Evan Wright', email: 'evan@company.com', role: 'employee', asDept: 'Engineering' }
-    ],
+    users: [],
     courses: [],
     assignments: [],
     certificates: [],
@@ -205,7 +205,6 @@ const UI = {
 
 // Application Initialization
 async function initApp() {
-    await seedData();
     setupEventListeners();
 
     // Check if already authenticated
@@ -279,73 +278,7 @@ function setupUserState(authUser, profile, role) {
     state.currentUser = user;
 }
 
-// Seed Data helper
-async function seedData() {
-    console.log("Seeding data...");
-
-    // Hash answers for initial courses
-    const q1aA = await hashString("Amazon Web Services");
-    const q1aB = await hashString("A cloud platform");
-
-    const course1 = {
-        id: 'c1',
-        title: 'AWS Fundamentals',
-        description: 'Introduction to Core AWS Services.',
-        videoUrl: 'https://www.youtube.com/embed/jZzJSQEqr0A', // Placeholder embed
-        passingScore: 50,
-        roles: ['Engineering'],
-        questions: [
-            { id: 'q1', text: 'What does AWS stand for?', options: ['Amazon Web Services', 'Amazon Web Solutions', 'Advanced Web System', 'Automated Web Services'], answerHash: await hashString('Amazon Web Services') },
-            { id: 'q2', text: 'Which service provides virtual servers?', options: ['S3', 'EC2', 'RDS', 'Lambda'], answerHash: await hashString('EC2') }
-        ]
-    };
-
-    const course2 = {
-        id: 'c2',
-        title: 'Data Privacy Basics',
-        description: 'Essential facts about GDPR and PII handling.',
-        videoUrl: 'https://www.youtube.com/embed/PZ5Xf4zOf3w',
-        passingScore: 66,
-        roles: ['Engineering', 'Marketing'],
-        questions: [
-            { id: 'q3', text: 'What is PII?', options: ['Personally Identifiable Information', 'Public Internet Interface', 'Private Internal IP', 'Program Instruction Index'], answerHash: await hashString('Personally Identifiable Information') },
-            { id: 'q4', text: 'Does GDPR apply outside Europe?', options: ['Yes, if processing EU residents data', 'No, never', 'Only for tech companies', 'Only for banks'], answerHash: await hashString('Yes, if processing EU residents data') },
-            { id: 'q5', text: 'Who owns consumer data?', options: ['The consumer', 'The company', 'The government', 'The IT Department'], answerHash: await hashString('The consumer') }
-        ]
-    };
-
-    const course3 = {
-        id: 'c3',
-        title: 'Leadership 101',
-        description: 'Foundations of effective team management.',
-        videoUrl: 'https://www.youtube.com/embed/2lKpTWHSWg4',
-        passingScore: 100,
-        roles: ['Marketing'],
-        questions: [
-            { id: 'q6', text: 'What is active listening?', options: ['Listening and giving feedback', 'Waiting to speak', 'Interrupting often', 'Ignoring the speaker'], answerHash: await hashString('Listening and giving feedback') }
-        ]
-    };
-
-    state.courses = [course1, course2, course3];
-
-    // Seed assignments
-    let twoDaysAgo = new Date(); twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-    let nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
-
-    state.assignments = [
-        { id: 'a1', courseId: 'c1', userId: 'u2', status: 'Passed', dueDate: nextWeek.toISOString().split('T')[0], attempts: 1, score: 100 },
-        { id: 'a2', courseId: 'c2', userId: 'u2', status: 'In Progress', dueDate: nextWeek.toISOString().split('T')[0], attempts: 0 },
-        { id: 'a3', courseId: 'c1', userId: 'u3', status: 'Failed', dueDate: twoDaysAgo.toISOString().split('T')[0], attempts: 3, score: 0 },
-        { id: 'a4', courseId: 'c2', userId: 'u4', status: 'Not Started', dueDate: twoDaysAgo.toISOString().split('T')[0], attempts: 0 },
-        { id: 'a5', courseId: 'c3', userId: 'u5', status: 'Passed', dueDate: nextWeek.toISOString().split('T')[0], attempts: 1, score: 100 }
-    ];
-
-    // Give certificates to those who passed
-    state.certificates = [
-        { id: 'CERT-10001', userId: 'u2', courseId: 'c1', date: new Date().toISOString().split('T')[0], employeeName: 'Alice Smith', courseTitle: 'AWS Fundamentals' },
-        { id: 'CERT-10002', userId: 'u5', courseId: 'c3', date: new Date().toISOString().split('T')[0], employeeName: 'Diana Prince', courseTitle: 'Leadership 101' }
-    ];
-}
+// Seed Data helper (Removed - using API)
 
 // Event Listeners
 function setupEventListeners() {
@@ -410,12 +343,12 @@ function switchPanel(navItems, panelsObj, targetId) {
     });
 }
 
-function showView(viewName) {
+async function showView(viewName) {
     Object.values(UI.views).forEach(v => v.classList.add('hidden'));
     UI.views[viewName].classList.remove('hidden');
 
-    if (viewName === 'admin') initAdminDashboard();
-    if (viewName === 'employee') initEmployeeDashboard();
+    if (viewName === 'admin') await initAdminDashboard();
+    if (viewName === 'employee') await initEmployeeDashboard();
 }
 
 // Auth
@@ -546,7 +479,24 @@ async function handleLogout() {
 /* ====================================
    HR ADMIN LOGIC 
    ==================================== */
-function initAdminDashboard() {
+async function initAdminDashboard() {
+    try {
+        const res = await apiCall('/courses', 'GET');
+        state.courses = Array.isArray(res) ? res : (res.courses || []);
+    } catch (e) {
+        console.error("Failed to fetch courses", e);
+        showToast("Error loading courses");
+        state.courses = [];
+    }
+    
+    // Attempt to load users if endpoint exists
+    try {
+        const uRes = await apiCall('/users', 'GET');
+        state.users = Array.isArray(uRes) ? uRes : (uRes.users || []);
+    } catch(e) {
+        console.warn("Could not load users list", e);
+    }
+
     renderCourseTable();
     populateAssignmentDropdowns();
     renderSkillGapDashboard();
@@ -589,44 +539,29 @@ function populateAssignmentDropdowns() {
     UI.admin.assignTargetSelect.appendChild(empGroup);
 }
 
-function handleAssignCourse(e) {
+async function handleAssignCourse(e) {
     e.preventDefault();
     const courseId = UI.admin.assignCourseSelect.value;
     const target = UI.admin.assignTargetSelect.value;
     const dueDate = document.getElementById('assign-due-date').value;
 
-    let targetUsers = [];
-    if (target.startsWith('role:')) {
-        const role = target.split(':')[1];
-        if (role === 'All') {
-            targetUsers = state.users.filter(u => u.role === 'employee');
-        } else {
-            targetUsers = state.users.filter(u => u.asDept === role);
-        }
-    } else if (target.startsWith('user:')) {
-        const userId = target.split(':')[1];
-        targetUsers.push(state.users.find(u => u.id === userId));
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Assigning...';
+
+    try {
+        await apiCall(`/courses/${courseId}/assign`, 'POST', { target: target, due_date: dueDate });
+        showToast(`Course assigned successfully.`);
+        e.target.reset();
+        await initAdminDashboard(); // Refresh matrix
+    } catch(err) {
+        showToast(`Assignment failed: ${err.message}`);
+        console.error(err);
     }
 
-    let count = 0;
-    targetUsers.forEach(u => {
-        // Prevent duplicate assignments
-        if (!state.assignments.find(a => a.courseId === courseId && a.userId === u.id)) {
-            state.assignments.push({
-                id: 'a_' + Date.now() + Math.random().toString(36).substr(2, 5),
-                courseId: courseId,
-                userId: u.id,
-                status: 'Not Started',
-                dueDate: dueDate,
-                attempts: 0
-            });
-            count++;
-        }
-    });
-
-    showToast(`Email sent to ${count} employee(s). Course assigned.`);
-    e.target.reset();
-    renderSkillGapDashboard(); // Refresh matrix
+    btn.disabled = false;
+    btn.textContent = originalText;
 }
 
 // Modal handling
@@ -684,9 +619,12 @@ async function handleCreateCourse(e) {
     const rolesStr = document.getElementById('new-course-roles').value;
     const roles = rolesStr.split(',').map(r => r.trim());
 
-    const courseId = 'c_' + Date.now();
-    const questions = [];
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
 
+    const questions = [];
     const qItems = document.querySelectorAll('.question-builder-item');
     for (let item of qItems) {
         const text = item.querySelector('.q-text').value;
@@ -695,30 +633,34 @@ async function handleCreateCourse(e) {
         const optC = item.querySelector('.q-opt-c').value;
         const optD = item.querySelector('.q-opt-d').value;
 
-        const ansHash = await hashString(optA);
-
-        // Shuffle options for display 
-        // We will shuffle them on render, but store them
         const options = [optA, optB, optC, optD].filter(Boolean);
 
         questions.push({
-            id: 'q_' + Math.random().toString(36).substr(2, 5),
             text: text,
             options: options,
-            answerHash: ansHash
+            correct_answer: optA
         });
     }
 
-    state.courses.push({
-        id: courseId, title: title, description: desc, videoUrl: url,
-        passingScore: score, roles: roles, questions: questions
-    });
+    try {
+        await apiCall('/courses', 'POST', {
+            title: title,
+            description: desc,
+            videoUrl: url,
+            passingScore: score,
+            assigned_roles: roles,
+            questions: questions
+        });
+        showToast(`Course "${title}" created successfully.`);
+        closeModals();
+        await initAdminDashboard(); // Refresh course list
+    } catch(err) {
+        showToast(`Failed to create course: ${err.message}`);
+        console.error(err);
+    }
 
-    showToast(`Course "${title}" created successfully.`);
-    closeModals();
-    renderCourseTable();
-    populateAssignmentDropdowns();
-    renderSkillGapDashboard();
+    btn.disabled = false;
+    btn.textContent = originalText;
 }
 
 // Skill Gap Matrix
@@ -802,7 +744,21 @@ function renderSkillGapDashboard() {
 /* ====================================
    EMPLOYEE DASHBOARD LOGIC 
    ==================================== */
-function initEmployeeDashboard() {
+async function initEmployeeDashboard() {
+    try {
+        const res = await apiCall('/courses', 'GET');
+        // Employee courses might be returned as an array directly or inside a wrapper.
+        // If the backend returns assigned courses directly, map them. Otherwise, fall back.
+        state.courses = Array.isArray(res) ? res : (res.courses || []);
+        
+        // Also try to fetch assignments or completions if there's an endpoint.
+        // Assuming GET /completions or /users/{id}/courses or they are embedded.
+        // For now, if no assignments API exists, assume `state.courses` includes assignment status.
+        state.assignments = state.courses.map(c => c.assignment || { status: 'Not Started', attempts: 0 });
+    } catch(e) {
+        console.error("Failed to load employee courses", e);
+    }
+    
     renderMyCourses();
     renderCertificates();
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-courses');
@@ -872,29 +828,43 @@ function openCourseViewer(assignmentId) {
         course: course,
         currentQuestionIndex: 0,
         score: 0,
-        shuffledQuestions: [...course.questions].map(q => {
-            return {
-                ...q,
-                shuffledOptions: [...q.options].sort(() => Math.random() - 0.5) // basic shuffle
-            }
-        }),
-        userAnswersHash: []
+        shuffledQuestions: [],
+        userAnswers: []
     };
 
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-course-viewer');
 }
 
 // Quiz Engine
-function startQuiz() {
+async function startQuiz() {
     if (!state.activeQuiz) return;
     document.getElementById('quiz-result-container').classList.add('hidden');
     document.getElementById('quiz-question-container').classList.remove('hidden');
-    document.getElementById('btn-quiz-next').classList.remove('hidden');
+    
+    const btnNext = document.getElementById('btn-quiz-next');
+    btnNext.classList.remove('hidden');
+    btnNext.textContent = 'Loading Questions...';
+    btnNext.disabled = true;
+
+    try {
+        const res = await apiCall(`/courses/${state.activeQuiz.course.id}/quiz`, 'GET');
+        const questions = Array.isArray(res) ? res : (res.questions || []);
+        
+        state.activeQuiz.shuffledQuestions = questions.map(q => ({
+            ...q,
+            shuffledOptions: [...(q.options || [])].sort(() => Math.random() - 0.5)
+        }));
+    } catch(err) {
+        showToast("Failed to fetch questions");
+        console.error(err);
+        return;
+    }
 
     state.activeQuiz.currentQuestionIndex = 0;
     state.activeQuiz.score = 0;
-    state.activeQuiz.userAnswersHash = [];
+    state.activeQuiz.userAnswers = [];
 
+    btnNext.disabled = false;
     UI.employee.panels.quiz.querySelector('#quiz-course-title').textContent = `Quiz: ${state.activeQuiz.course.title}`;
 
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-quiz-engine');
@@ -943,38 +913,57 @@ async function handleNextQuestion() {
         return;
     }
 
-    // Hash the answer and store
-    const hash = await hashString(selected.value);
-    state.activeQuiz.userAnswersHash.push(hash);
+    const currentQ = state.activeQuiz.shuffledQuestions[state.activeQuiz.currentQuestionIndex];
+    state.activeQuiz.userAnswers.push({
+        questionId: currentQ.id || currentQ.text,
+        selected_answer: selected.value,
+        answer: selected.value // Include both for compatibility
+    });
 
     state.activeQuiz.currentQuestionIndex++;
 
     if (state.activeQuiz.currentQuestionIndex >= state.activeQuiz.shuffledQuestions.length) {
-        finishQuiz();
+        await finishQuiz();
     } else {
         renderQuestion();
     }
 }
 
-function finishQuiz() {
+async function finishQuiz() {
     document.getElementById('quiz-progress-fill').style.width = '100%';
+    
+    const btnNext = document.getElementById('btn-quiz-next');
+    btnNext.disabled = true;
+    btnNext.textContent = 'Submitting...';
 
-    // Grade hashes
-    let correctCount = 0;
-    const questions = state.activeQuiz.shuffledQuestions;
-    for (let i = 0; i < questions.length; i++) {
-        if (state.activeQuiz.userAnswersHash[i] === questions[i].answerHash) {
-            correctCount++;
-        }
+    let passed = false;
+    let score = 0;
+    let attempts = (state.activeQuiz.assignment.attempts || 0) + 1;
+
+    try {
+        const res = await apiCall(`/courses/${state.activeQuiz.course.id}/quiz/submit`, 'POST', {
+            answers: state.activeQuiz.userAnswers
+        });
+        
+        passed = res.passed === true || (res.status && res.status.toLowerCase() === 'passed');
+        score = res.score || 0;
+        if (res.attempts !== undefined) attempts = res.attempts;
+        
+        state.activeQuiz.assignment.status = passed ? 'Passed' : (attempts >= 3 ? 'Failed' : 'In Progress');
+        state.activeQuiz.assignment.score = score;
+        state.activeQuiz.assignment.attempts = attempts;
+        
+    } catch(err) {
+        showToast(`Failed to submit: ${err.message}`);
+        console.error(err);
+        btnNext.disabled = false;
+        btnNext.textContent = 'Submit Answers';
+        return;
     }
 
-    const pct = Math.round((correctCount / questions.length) * 100);
-    const passed = pct >= state.activeQuiz.course.passingScore;
-
-    state.activeQuiz.assignment.attempts++; // increment attempt tracker
-
     document.getElementById('quiz-question-container').classList.add('hidden');
-    document.getElementById('btn-quiz-next').classList.add('hidden');
+    btnNext.classList.add('hidden');
+    btnNext.disabled = false;
 
     const resContainer = document.getElementById('quiz-result-container');
     resContainer.classList.remove('hidden');
@@ -983,24 +972,20 @@ function finishQuiz() {
     title.textContent = passed ? 'Congratulations! You Passed.' : 'You failed the quiz.';
     title.style.color = passed ? 'var(--status-green)' : 'var(--status-red)';
 
-    document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${pct}%</strong> (Required: ${state.activeQuiz.course.passingScore}%)`;
-    document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${state.activeQuiz.assignment.attempts} / 3`;
+    document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${score}%</strong> (Required: ${state.activeQuiz.course.passingScore}%)`;
+    document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${attempts} / 3`;
 
     if (passed) {
-        state.activeQuiz.assignment.status = 'Passed';
-        state.activeQuiz.assignment.score = pct;
         document.getElementById('btn-quiz-retake').classList.add('hidden');
         generateCertificate(state.activeQuiz.course);
         showToast("Passed! Certificate generated.");
     } else {
-        if (state.activeQuiz.assignment.attempts >= 3) {
-            state.activeQuiz.assignment.status = 'Failed';
+        if (attempts >= 3) {
             document.getElementById('btn-quiz-retake').classList.add('hidden');
             showToast("Max attempts reached.");
         } else {
             document.getElementById('btn-quiz-retake').classList.remove('hidden');
         }
-        state.activeQuiz.assignment.score = pct; // Keep highest? Just keep last
     }
 
     renderMyCourses();
