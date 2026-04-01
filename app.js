@@ -1013,6 +1013,7 @@ async function finishQuiz() {
     let score = 0;
     let attempts = 0;
     let cert_id = null;
+    let resultMessage = '';  // ✅ store message outside try
 
     try {
         const res = await apiCall(`/courses/${state.activeQuiz.course.course_id}/quiz/submit`, 'POST', {
@@ -1026,9 +1027,10 @@ async function finishQuiz() {
         
         passed = res.passed === true;
         score = res.score || 0;
-        attempts = res.attempts || 0;
-        const cert_id = res.cert_id || null;
-        
+        attempts = res.attempt_count || 0;
+        cert_id = res.cert_id || null;  // ✅ removed const — uses outer variable
+        resultMessage = res.message || '';  // ✅ store message
+
     } catch(err) {
         showToast(`Failed to submit: ${err.message}`);
         console.error(err);
@@ -1049,18 +1051,16 @@ async function finishQuiz() {
     title.style.color = passed ? 'var(--status-green)' : 'var(--status-red)';
 
     document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${score}%</strong>`;
-    document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${attempts ? attempts : 'N/A'} / 3`;
 
     if (passed) {
         document.getElementById('btn-quiz-retake').classList.add('hidden');
+        document.getElementById('quiz-result-attempts').innerHTML = 
+            cert_id ? `Certificate ID: <strong>${cert_id}</strong>` : `Attempts: ${attempts} / 3`;
         showToast("Passed! Certificate generated.");
-        if (cert_id) {
-            document.getElementById('quiz-result-attempts').innerHTML = 
-                `Certificate ID: <strong>${cert_id}</strong>`;
-        }
     } else {
         document.getElementById('btn-quiz-retake').classList.remove('hidden');
-        showToast(res.message || "You failed. Please try again.");
+        document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${attempts} / 3`;
+        showToast(resultMessage || "You failed. Please try again.");  // ✅ use resultMessage
     }
 
     await initEmployeeDashboard();
