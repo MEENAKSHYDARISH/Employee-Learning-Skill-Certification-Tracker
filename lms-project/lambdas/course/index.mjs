@@ -11,7 +11,7 @@ import { randomUUID } from "crypto"; // ✅ Added
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
-const sesClient = new SESClient({});
+const sesClient = new SESClient({ region: process.env.AWS_REGION || "ap-south-1" });
 const SES_SENDER = process.env.SES_SENDER;
 
 export const handler = async (event) => {
@@ -190,32 +190,58 @@ export const handler = async (event) => {
       );
 
       // 4. Send Emails via SES
-      const sender = SES_SENDER || "no-reply@example.com";
+      if (!SES_SENDER) {
+        console.error("SES_SENDER env variable is not configured.");
+        return response(500, { error: "SES sender address is not configured" });
+      }
+
+      const sender = SES_SENDER;
       const emailRequests = targetUsers
         .filter((user) => typeof user?.email === "string" && user.email.trim())
-        .map((user) =>
-          sesClient.send(
-            new SendEmailCommand({
-              Destination: { ToAddresses: [user.email.trim()] },
-              Message: {
-                Body: {
-                  Text: {
-                    Data: `Hi ${user.name || "there"}, you have been assigned: ${course.title}. View here: ${course.video_url}`,
-                  },
+        .map((user) => ({ user, payload: new SendEmailCommand({
+            Destination: { ToAddresses: [user.email.trim()] },
+            Message: {
+              Body: {
+                Text: {
+                  Data: `Hi ${user.name || "there"}, you have been assigned: ${course.title}. View here: ${course.video_url}`,
                 },
-                Subject: { Data: "New Course Assignment" },
               },
-              Source: sender,
-            }),
-          ),
-        );
+              Subject: { Data: "New Course Assignment" },
+            },
+            Source: sender,
+          }) }));
 
-      const emailResults = await Promise.allSettled(emailRequests);
-      const emailSent = emailResults.filter((r) => r.status === "fulfilled").length;
-      const emailFailed = emailResults.length - emailSent;
-      return response(200, {
-        message: `Assigned to ${targetUsers.length} employees. Emails sent: ${emailSent}, failed: ${emailFailed}`,
+      const emailResults = await Promise.allSettled(
+        emailRequests.map(({ user, payload }) =>
+          sesClient.send(payload).then((res) => ({ user, res })),
+        ),
+      );
+
+      let emailSent = 0;
+      const emailFailures = [];
+      emailResults.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          emailSent++;
+        } else {
+          const failedUser = emailRequests[index]?.user;
+          emailFailures.push({
+            user: failedUser?.email || "unknown",
+            error: result.reason?.message || String(result.reason),
+          });
+          console.error(
+            "SES send failed for",
+            failedUser?.email,
+            result.reason,
+          );
+        }
       });
+
+      const emailFailed = emailRequests.length - emailSent;
+      const responsePayload = {
+        message: `Assigned to ${targetUsers.length} employees. Emails sent: ${emailSent}, failed: ${emailFailed}`,
+        emailFailures,
+      };
+      return response(200, responsePayload);
     }
   } catch (error) {
     console.error(error);
