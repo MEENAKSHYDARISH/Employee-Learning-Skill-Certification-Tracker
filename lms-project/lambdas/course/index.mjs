@@ -170,7 +170,7 @@ export const handler = async (event) => {
       );
 
       // 4. Send Emails via SES
-      const sender = SES_SENDER || "no-reply@example.com";
+      const sender = SES_SENDER || "saeetarde@gmail.com";
       const emailRequests = targetUsers
         .filter((user) => typeof user?.email === "string" && user.email.trim())
         .map((user) =>
@@ -185,7 +185,7 @@ export const handler = async (event) => {
                 },
                 Subject: { Data: "New Course Assignment" },
               },
-              Source: "saeetarde@gmail.com",
+              Source: sender,
             }),
           ),
         );
