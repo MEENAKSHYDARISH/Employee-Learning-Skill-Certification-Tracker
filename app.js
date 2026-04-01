@@ -1,135 +1,143 @@
 import { Amplify } from 'aws-amplify';
-import { signIn, signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+import { signIn, confirmSignIn, signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
 
 Amplify.configure({
-  Auth: {
-    Cognito: {
-      userPoolId: 'ap-south-1_OuutbLcox',       // from Cognito console
-      userPoolClientId: '1ju1f0luarghoud499amanijm2',     // App client ID
-      loginWith: {
-        email: true
-      }
+    Auth: {
+        Cognito: {
+            userPoolId: 'ap-south-1_OuutbLcox',       // from Cognito console
+            userPoolClientId: '1ju1f0luarghoud499amanijm2',     // App client ID
+            loginWith: {
+                email: true
+            }
+        }
     }
-  }
 });
 
 async function requireAuth(requiredRole = null) {
-  try {
-    const user = await getCurrentUser();
-    const session = await fetchAuthSession();
-    const groups = session.tokens.idToken.payload['cognito:groups'] || [];
+    try {
+        const user = await getCurrentUser();
+        const session = await fetchAuthSession();
+        const groups = session.tokens.idToken.payload['cognito:groups'] || [];
 
-    // Role check 
-    if (requiredRole === 'admin' && !groups.includes('HRAdmin')) {
-      alert('Unauthorized - HRAdmin group required');
-      window.location.href = '/index.html';
-      return null;
+        // Role check 
+        if (!groups.includes('Employee') && !groups.includes('HRAdmin')) {
+            showView('login');
+            return null;
+        }
+
+        const isAdmin = groups.includes('HRAdmin');
+        if (requiredRole === 'admin' && !isAdmin) {
+            alert('Unauthorized - HRAdmin group required');
+            showView('login');
+            return null;
+        }
+
+        return { userId: user.userId, username: user.username, groups };
+    } catch {
+        // Not signed in
+        return null;
     }
-
-    return { userId: user.userId, username: user.username, groups };
-  } catch {
-    // Not signed in
-    window.location.href = '/index.html';
-    return null;
-  }
 }
 
 async function login(email, password) {
-  try {
-    const { isSignedIn, nextStep } = await signIn({
-      username: email,
-      password: password
-    });
+    try {
+        const { isSignedIn, nextStep } = await signIn({
+            username: email,
+            password: password
+        });
 
-    if (nextStep.signInStep === 'DONE') {
-      // Get the JWT tokens
-      const session = await fetchAuthSession();
-      const idToken = session.tokens.idToken.toString();
-      const accessToken = session.tokens.accessToken.toString();
+        if (nextStep.signInStep === 'DONE') {
+            // Get the JWT tokens
+            const session = await fetchAuthSession();
+            const idToken = session.tokens.idToken.toString();
+            const accessToken = session.tokens.accessToken.toString();
 
-      // Store in sessionStorage (clears when tab closes)
-      // Never use localStorage for tokens — persists after browser close
-      sessionStorage.setItem('idToken', idToken);
-      sessionStorage.setItem('accessToken', accessToken);
+            // Store in sessionStorage (clears when tab closes)
+            // Never use localStorage for tokens — persists after browser close
+            sessionStorage.setItem('idToken', idToken);
+            sessionStorage.setItem('accessToken', accessToken);
 
-      // Extract user role from IdToken claims
-      const claims = session.tokens.idToken.payload;
-      const groups = claims['cognito:groups'] || [];
-      const role = groups.includes('HRAdmin') ? 'admin' : 'employee';
+            // Extract user role from IdToken claims
+            const claims = session.tokens.idToken.payload;
+            const groups = claims['cognito:groups'] || [];
 
-      return { success: true, role, userId: claims.sub };
+            if (!groups.includes('Employee') && !groups.includes('HRAdmin')) {
+                throw new Error("Login failed: You must be assigned to the 'Employee' or 'HRAdmin' group in Cognito.");
+            }
+
+            const isAdmin = groups.includes('HRAdmin');
+            const role = isAdmin ? 'admin' : 'employee';
+
+            return { success: true, role, userId: claims.sub };
+        }
+
+        // Handle MFA or new password required
+        if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+            return { success: false, requiresNewPassword: true };
+        }
+
+    } catch (error) {
+        console.error('AWS Cognito login error:', error);
+        if (error.name === 'NotAuthorizedException') {
+            return { success: false, message: 'Incorrect email or password' };
+        }
+        if (error.name === 'UserNotConfirmedException') {
+            return { success: false, message: 'Please verify your email first' };
+        }
+
+        // Convert error to a string if it doesn't have a message property
+        let errorMsg = error.message || String(error);
+        if (typeof error === 'object') {
+            try { errorMsg = errorMsg + " - " + JSON.stringify(error); } catch (e) { }
+        }
+
+        return { success: false, message: errorMsg };
     }
-
-    // Handle MFA or new password required
-    if (nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
-      return { success: false, requiresNewPassword: true };
-    }
-
-  } catch (error) {
-    if (error.name === 'NotAuthorizedException') {
-      return { success: false, message: 'Incorrect email or password' };
-    }
-    if (error.name === 'UserNotConfirmedException') {
-      return { success: false, message: 'Please verify your email first' };
-    }
-    return { success: false, message: error.message };
-  }
-}
-
-async function refreshTokens() {
-  try {
-    // Passing forceRefresh: true forces Amplify to call Cognito
-    // even if it thinks the token is still valid
-    const session = await fetchAuthSession({ forceRefresh: true });
-    
-    const newAccessToken = session.tokens.accessToken.toString();
-    const newIdToken = session.tokens.idToken.toString();
-    
-    sessionStorage.setItem('accessToken', newAccessToken);
-    sessionStorage.setItem('idToken', newIdToken);
-    
-    return true;
-  } catch (error) {
-    // Refresh token also expired (default: 30 days)
-    // User must log in again
-    sessionStorage.clear();
-    return false;
-  }
 }
 
 async function apiCall(path, method = 'GET', body = null) {
-  const accessToken = sessionStorage.getItem('accessToken');
-  
-  // Check if token exists
-  if (!accessToken) {
-    window.location.href = '/index.html';
-    return null;
-  }
-
-  const options = {
-    method,
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+    let session;
+    try {
+        session = await fetchAuthSession({ forceRefresh: true });
+    } catch (e) {
+        // User not authenticated or session perfectly expired
+        showView('login');
+        return null;
     }
-  };
 
-  if (body) options.body = JSON.stringify(body);
-
-  const res = await fetch(`https://your-api-id.execute-api.us-east-1.amazonaws.com/prod${path}`, options);
-
-  // Token expired → refresh and retry once
-  if (res.status === 401) {
-    const refreshed = await refreshTokens();
-    if (refreshed) {
-      return apiCall(path, method, body); // retry with new token
-    } else {
-      window.location.href = '/index.html';
-      return null;
+    if (!session.tokens) {
+        showView('login');
+        return null;
     }
-  }
 
-  return res.json();
+    const idToken = session.tokens.idToken.toString();
+
+    const options = {
+        method,
+        headers: {
+            'Authorization': idToken,
+            'Content-Type': 'application/json'
+        }
+    };
+
+    if (body) options.body = JSON.stringify(body);
+
+    // The Cognito/Users API Gateway you already pasted
+    const USERS_API_BASE_URL = 'https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod'; 
+    // TODO: Paste your new Serverless LMS (Courses & Quizzes) API Gateway URL below
+    const LMS_API_BASE_URL = 'https://yxa4h8pija.execute-api.ap-south-1.amazonaws.com/backend'; // Replace this line!
+
+    // Route requests to the correct API Gateway
+    const baseUrl = path.startsWith('/users') ? USERS_API_BASE_URL : LMS_API_BASE_URL;
+    const res = await fetch(`${baseUrl}${path}`, options);
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`API error ${res.status}: ${text}`);
+    }
+
+    const resText = await res.text();
+    return resText ? JSON.parse(resText) : {};
 }
 
 // Utility: SHA-256 Hash
@@ -144,14 +152,7 @@ async function hashString(str) {
 // Global State
 let state = {
     currentUser: null,
-    users: [
-        { id: 'u1', name: 'HR Admin', email: 'admin@company.com', role: 'admin' },
-        { id: 'u2', name: 'Alice Smith', email: 'employee@company.com', role: 'employee', asDept: 'Engineering' },
-        { id: 'u3', name: 'Bob Jones', email: 'bob@company.com', role: 'employee', asDept: 'Engineering' },
-        { id: 'u4', name: 'Charlie Lee', email: 'charlie@company.com', role: 'employee', asDept: 'Marketing' },
-        { id: 'u5', name: 'Diana Prince', email: 'diana@company.com', role: 'employee', asDept: 'Marketing' },
-        { id: 'u6', name: 'Evan Wright', email: 'evan@company.com', role: 'employee', asDept: 'Engineering' }
-    ],
+    users: [],
     courses: [],
     assignments: [],
     certificates: [],
@@ -204,113 +205,86 @@ const UI = {
 
 // Application Initialization
 async function initApp() {
-    await seedData();
     setupEventListeners();
-    
-    // Check if the user is already authenticated and has valid tokens
-    const authUser = await requireAuth();
-    if (authUser) {
-        const role = authUser.groups.includes('HRAdmin') ? 'admin' : 'employee';
-        let user = state.users.find(u => u.id === authUser.userId);
-        if (!user) {
-            user = { id: authUser.userId, name: authUser.username || 'User', email: authUser.username, role: role, asDept: 'Engineering' };
-            state.users.push(user);
-        } else {
-            user.role = role;
-        }
-        state.currentUser = user;
-        
-        if (role === 'admin') {
-            if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
-                window.location.href = '/admin/dashboard.html';
-            }
-        } else {
-            if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/' || window.location.pathname === '') {
-                window.location.href = '/employee/courses.html';
-            }
-        }
-    } else {
-        if (!window.location.pathname.endsWith('index.html') && window.location.pathname !== '/' && window.location.pathname !== '') {
-            window.location.href = '/index.html';
-        } else {
+
+    // Check if already authenticated
+    try {
+        const session = await fetchAuthSession({ forceRefresh: true });
+
+        // If no tokens, just show login
+        if (!session.tokens) {
             showView('login');
+            return;
         }
+
+        const authUser = await requireAuth();
+        if (!authUser) {
+            showView('login');
+            return;
+        }
+
+        // Only call API if we have a confirmed valid session
+        const isAdmin = authUser.groups.includes('HRAdmin');
+        const role = isAdmin ? 'admin' : 'employee';
+
+        try {
+            const profile = await apiCall(`/users/${authUser.userId}`);
+            // profile loaded successfully
+            setupUserState(authUser, profile, role);
+        } catch (e) {
+            if (e.message.includes('404')) {
+                // User not in DynamoDB yet — create profile
+                await apiCall('/users', 'POST', {
+                    employee_id: authUser.userId,
+                    email: authUser.username,
+                    name: authUser.username,
+                    role: role,
+                    department: 'Unassigned'
+                });
+                setupUserState(authUser, null, role);
+            } else {
+                // Any other error — show login
+                showView('login');
+                return;
+            }
+        }
+
+        showView(role === 'admin' ? 'admin' : 'employee');
+
+    } catch (e) {
+        // Not authenticated at all — show login
+        showView('login');
     }
 }
 
-// Seed Data helper
-async function seedData() {
-    console.log("Seeding data...");
-    
-    // Hash answers for initial courses
-    const q1aA = await hashString("Amazon Web Services");
-    const q1aB = await hashString("A cloud platform");
-    
-    const course1 = {
-        id: 'c1',
-        title: 'AWS Fundamentals',
-        description: 'Introduction to Core AWS Services.',
-        videoUrl: 'https://www.youtube.com/embed/jZzJSQEqr0A', // Placeholder embed
-        passingScore: 50,
-        roles: ['Engineering'],
-        questions: [
-            { id: 'q1', text: 'What does AWS stand for?', options: ['Amazon Web Services', 'Amazon Web Solutions', 'Advanced Web System', 'Automated Web Services'], answerHash: await hashString('Amazon Web Services') },
-            { id: 'q2', text: 'Which service provides virtual servers?', options: ['S3', 'EC2', 'RDS', 'Lambda'], answerHash: await hashString('EC2') }
-        ]
-    };
-
-    const course2 = {
-        id: 'c2',
-        title: 'Data Privacy Basics',
-        description: 'Essential facts about GDPR and PII handling.',
-        videoUrl: 'https://www.youtube.com/embed/PZ5Xf4zOf3w', 
-        passingScore: 66,
-        roles: ['Engineering', 'Marketing'],
-        questions: [
-            { id: 'q3', text: 'What is PII?', options: ['Personally Identifiable Information', 'Public Internet Interface', 'Private Internal IP', 'Program Instruction Index'], answerHash: await hashString('Personally Identifiable Information') },
-            { id: 'q4', text: 'Does GDPR apply outside Europe?', options: ['Yes, if processing EU residents data', 'No, never', 'Only for tech companies', 'Only for banks'], answerHash: await hashString('Yes, if processing EU residents data') },
-            { id: 'q5', text: 'Who owns consumer data?', options: ['The consumer', 'The company', 'The government', 'The IT Department'], answerHash: await hashString('The consumer') }
-        ]
-    };
-
-    const course3 = {
-        id: 'c3',
-        title: 'Leadership 101',
-        description: 'Foundations of effective team management.',
-        videoUrl: 'https://www.youtube.com/embed/2lKpTWHSWg4',
-        passingScore: 100,
-        roles: ['Marketing'],
-        questions: [
-            { id: 'q6', text: 'What is active listening?', options: ['Listening and giving feedback', 'Waiting to speak', 'Interrupting often', 'Ignoring the speaker'], answerHash: await hashString('Listening and giving feedback') }
-        ]
-    };
-
-    state.courses = [course1, course2, course3];
-
-    // Seed assignments
-    let twoDaysAgo = new Date(); twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-    let nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
-    
-    state.assignments = [
-        { id: 'a1', courseId: 'c1', userId: 'u2', status: 'Passed', dueDate: nextWeek.toISOString().split('T')[0], attempts: 1, score: 100 },
-        { id: 'a2', courseId: 'c2', userId: 'u2', status: 'In Progress', dueDate: nextWeek.toISOString().split('T')[0], attempts: 0 },
-        { id: 'a3', courseId: 'c1', userId: 'u3', status: 'Failed', dueDate: twoDaysAgo.toISOString().split('T')[0], attempts: 3, score: 0 },
-        { id: 'a4', courseId: 'c2', userId: 'u4', status: 'Not Started', dueDate: twoDaysAgo.toISOString().split('T')[0], attempts: 0 },
-        { id: 'a5', courseId: 'c3', userId: 'u5', status: 'Passed', dueDate: nextWeek.toISOString().split('T')[0], attempts: 1, score: 100 }
-    ];
-
-    // Give certificates to those who passed
-    state.certificates = [
-        { id: 'CERT-10001', userId: 'u2', courseId: 'c1', date: new Date().toISOString().split('T')[0], employeeName: 'Alice Smith', courseTitle: 'AWS Fundamentals' },
-        { id: 'CERT-10002', userId: 'u5', courseId: 'c3', date: new Date().toISOString().split('T')[0], employeeName: 'Diana Prince', courseTitle: 'Leadership 101' }
-    ];
+function setupUserState(authUser, profile, role) {
+    let user = state.users.find(u => u.id === authUser.userId);
+    if (!user) {
+        user = {
+            id: authUser.userId,
+            name: profile?.name || authUser.username || 'User',
+            email: authUser.username,
+            role: role,
+            asDept: profile?.department || 'Engineering'
+        };
+        state.users.push(user);
+    } else {
+        user.role = role;
+        if (profile) {
+            user.name = profile.name || user.name;
+            user.asDept = profile.department || user.asDept;
+        }
+    }
+    state.currentUser = user;
 }
+
+// Seed Data helper (Removed - using API)
 
 // Event Listeners
 function setupEventListeners() {
     // Login
     document.getElementById('login-form').addEventListener('submit', handleLogin);
-    
+
     // Logout
     document.getElementById('hr-logout-btn').addEventListener('click', handleLogout);
     document.getElementById('emp-logout-btn').addEventListener('click', handleLogout);
@@ -360,66 +334,133 @@ function showToast(message) {
 // Navigation Helper
 function switchPanel(navItems, panelsObj, targetId) {
     navItems.forEach(nav => {
-        if(nav.dataset.target === targetId) nav.classList.add('active');
+        if (nav.dataset.target === targetId) nav.classList.add('active');
         else nav.classList.remove('active');
     });
     Object.values(panelsObj).forEach(panel => {
-        if(panel.id === targetId) panel.classList.remove('hidden');
+        if (panel.id === targetId) panel.classList.remove('hidden');
         else panel.classList.add('hidden');
     });
 }
 
-function showView(viewName) {
+async function showView(viewName) {
     Object.values(UI.views).forEach(v => v.classList.add('hidden'));
     UI.views[viewName].classList.remove('hidden');
-    
-    if (viewName === 'admin') initAdminDashboard();
-    if (viewName === 'employee') initEmployeeDashboard();
+
+    if (viewName === 'admin') await initAdminDashboard();
+    if (viewName === 'employee') await initEmployeeDashboard();
 }
 
 // Auth
 async function handleLogin(e) {
-  e.preventDefault();
-  
-  const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').value;
-  const errorDiv = document.getElementById('error-message');
-  const btn = document.getElementById('login-btn');
+    e.preventDefault();
 
-  btn.disabled = true;
-  btn.textContent = 'Signing in...';
-  if (errorDiv) errorDiv.textContent = '';
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const errorDiv = document.getElementById('error-message');
+    const btn = document.getElementById('login-btn');
 
-  // Call Cognito login
-  const result = await login(email, password);
-
-  if (result.success) {
-    // Map to existing mock user or create a temporary one for the UI state
-    let user = state.users.find(u => u.email === email);
-    if (!user) {
-        user = { id: result.userId, name: email.split('@')[0], email: email, role: result.role, asDept: 'Engineering' };
-        state.users.push(user);
-    } else {
-        user.role = result.role; // sync role with Cognito
-    }
-    
-    state.currentUser = user;
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
     if (errorDiv) errorDiv.textContent = '';
-    
-    // Redirect based on role
-    if (result.role === 'admin') {
-      window.location.href = '/admin/dashboard.html';
+
+    // Call Cognito login
+    const result = await login(email, password);
+
+    if (result.success) {
+        btn.textContent = 'Verifying Profile Data...';
+        let profile = null;
+        try {
+            profile = await apiCall(`/users/${result.userId}`);
+        } catch (e) {
+            console.warn("Could not load user profile from DynamoDB.", e);
+            if (e.message && e.message.includes("404")) {
+                try {
+                    console.log("Profile doesn't exist yet - creating it");
+                    await apiCall(`/users`, 'POST', {
+                        employee_id: result.userId,
+                        email: email,
+                        name: email.split('@')[0],
+                        role: result.role,
+                        department: 'Unassigned'
+                    });
+                    profile = { department: 'Unassigned', manager: 'N/A', employmentType: 'Full-time' };
+                } catch (err) {
+                    console.error('Profile sync error:', err);
+                }
+            } else if (e.message && e.message.includes("401")) {
+                console.error("Token rejected by API. Check Cognito authorizer.");
+                showView('login');
+                btn.disabled = false;
+                btn.textContent = 'Sign in';
+                return;
+            }
+        }
+
+        // Map to existing mock user or create a temporary one for the UI state
+        let user = state.users.find(u => u.email === email);
+        if (!user) {
+            user = {
+                id: result.userId,
+                name: profile?.name || email.split('@')[0],
+                email: email,
+                role: result.role,
+                asDept: profile?.department || profile?.asDept || 'Engineering',
+                manager: profile?.manager || 'N/A',
+                joiningDate: profile?.joiningDate || 'N/A',
+                employmentType: profile?.employmentType || 'Full-time'
+            };
+            state.users.push(user);
+        } else {
+            user.role = result.role; // sync role with Cognito
+            if (profile) {
+                user.name = profile.name || user.name;
+                user.asDept = profile.department || profile.asDept || user.asDept;
+            }
+        }
+
+        state.currentUser = user;
+        if (errorDiv) errorDiv.textContent = '';
+
+        // Redirect based on role
+        if (result.role === 'admin') {
+            showView('admin');
+        } else {
+            showView('employee');
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+    } else if (result.requiresNewPassword) {
+        const newPassword = prompt("Your administrator requires you to change your password. Please enter a new password:");
+        if (!newPassword) {
+            if (errorDiv) errorDiv.textContent = 'You must enter a new password.';
+            btn.disabled = false;
+            btn.textContent = 'Sign in';
+            return;
+        }
+
+        btn.textContent = 'Setting new password...';
+        try {
+            const confirmResult = await confirmSignIn({ challengeResponse: newPassword });
+            if (confirmResult.nextStep.signInStep === 'DONE') {
+                alert("Password updated successfully! You will now be logged into the dashboard.");
+                window.location.reload();
+                return;
+            } else {
+                if (errorDiv) errorDiv.textContent = 'Further action required. Please check Cognito configuration.';
+            }
+        } catch (e) {
+            console.error(e);
+            if (errorDiv) errorDiv.textContent = e.message || 'Failed to update password.';
+        }
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
     } else {
-      window.location.href = '/employee/courses.html';
+        if (errorDiv) errorDiv.textContent = result.message || 'Login failed.';
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
     }
-    
-    btn.disabled = false;
-    btn.textContent = 'Sign in';
-  } else {
-    if (errorDiv) errorDiv.textContent = result.message || 'Login failed';
-    btn.disabled = false;
-    btn.textContent = 'Sign in';
-  }
 }
 
 async function handleLogout() {
@@ -438,7 +479,24 @@ async function handleLogout() {
 /* ====================================
    HR ADMIN LOGIC 
    ==================================== */
-function initAdminDashboard() {
+async function initAdminDashboard() {
+    try {
+        const res = await apiCall('/courses', 'GET');
+        state.courses = Array.isArray(res) ? res : (res.courses || []);
+    } catch (e) {
+        console.error("Failed to fetch courses", e);
+        showToast("Error loading courses");
+        state.courses = [];
+    }
+    
+    // Attempt to load users if endpoint exists
+    try {
+        const uRes = await apiCall('/users', 'GET');
+        state.users = Array.isArray(uRes) ? uRes : (uRes.users || []);
+    } catch(e) {
+        console.warn("Could not load users list", e);
+    }
+
     renderCourseTable();
     populateAssignmentDropdowns();
     renderSkillGapDashboard();
@@ -447,14 +505,19 @@ function initAdminDashboard() {
 function renderCourseTable() {
     UI.admin.courseTable.innerHTML = '';
     state.courses.forEach(course => {
+        const roleValue = course.assigned_roles ?? course.roles;
+        const roleDisplay = typeof roleValue === 'string' && roleValue.trim()
+            ? roleValue.trim()
+            : 'All';
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><strong>${course.title}</strong></td>
             <td>${course.description}</td>
-            <td><a href="${course.videoUrl}" target="_blank">Link</a></td>
+            <td><a href="${course.video_url || course.videoUrl}" target="_blank">Link</a></td>
             <td>${course.passingScore}%</td>
-            <td>${course.roles.join(', ')}</td>
-            <td><span class="badge status-blue">${course.questions.length} Qs</span></td>
+            <td>${roleDisplay}</td>
+            <td><span class="badge status-blue">${course.questions ? course.questions.length : '?'} Qs</span></td>
         `;
         UI.admin.courseTable.appendChild(tr);
     });
@@ -481,44 +544,29 @@ function populateAssignmentDropdowns() {
     UI.admin.assignTargetSelect.appendChild(empGroup);
 }
 
-function handleAssignCourse(e) {
+async function handleAssignCourse(e) {
     e.preventDefault();
     const courseId = UI.admin.assignCourseSelect.value;
     const target = UI.admin.assignTargetSelect.value;
     const dueDate = document.getElementById('assign-due-date').value;
 
-    let targetUsers = [];
-    if (target.startsWith('role:')) {
-        const role = target.split(':')[1];
-        if (role === 'All') {
-            targetUsers = state.users.filter(u => u.role === 'employee');
-        } else {
-            targetUsers = state.users.filter(u => u.asDept === role);
-        }
-    } else if (target.startsWith('user:')) {
-        const userId = target.split(':')[1];
-        targetUsers.push(state.users.find(u => u.id === userId));
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Assigning...';
+
+    try {
+        await apiCall(`/courses/${courseId}/assign`, 'POST', { target: target, due_date: dueDate });
+        showToast(`Course assigned successfully.`);
+        e.target.reset();
+        await initAdminDashboard(); // Refresh matrix
+    } catch(err) {
+        showToast(`Assignment failed: ${err.message}`);
+        console.error(err);
     }
 
-    let count = 0;
-    targetUsers.forEach(u => {
-        // Prevent duplicate assignments
-        if (!state.assignments.find(a => a.courseId === courseId && a.userId === u.id)) {
-            state.assignments.push({
-                id: 'a_' + Date.now() + Math.random().toString(36).substr(2, 5),
-                courseId: courseId,
-                userId: u.id,
-                status: 'Not Started',
-                dueDate: dueDate,
-                attempts: 0
-            });
-            count++;
-        }
-    });
-
-    showToast(`Email sent to ${count} employee(s). Course assigned.`);
-    e.target.reset();
-    renderSkillGapDashboard(); // Refresh matrix
+    btn.disabled = false;
+    btn.textContent = originalText;
 }
 
 // Modal handling
@@ -540,7 +588,7 @@ function addQuestionToBuilder() {
     const qDiv = document.createElement('div');
     qDiv.className = 'question-builder-item form-grid';
     qDiv.id = `builder-q-${builderQCount}`;
-    
+
     qDiv.innerHTML = `
         <div class="input-group" style="grid-column: 1 / -1;">
             <label>Question ${builderQCount} Text</label>
@@ -574,11 +622,14 @@ async function handleCreateCourse(e) {
     const url = document.getElementById('new-course-url').value;
     const score = parseInt(document.getElementById('new-course-score').value);
     const rolesStr = document.getElementById('new-course-roles').value;
-    const roles = rolesStr.split(',').map(r => r.trim());
+    const roles = rolesStr.trim();
 
-    const courseId = 'c_' + Date.now();
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
     const questions = [];
-    
     const qItems = document.querySelectorAll('.question-builder-item');
     for (let item of qItems) {
         const text = item.querySelector('.q-text').value;
@@ -586,38 +637,44 @@ async function handleCreateCourse(e) {
         const optB = item.querySelector('.q-opt-b').value;
         const optC = item.querySelector('.q-opt-c').value;
         const optD = item.querySelector('.q-opt-d').value;
-        
-        const ansHash = await hashString(optA);
-        
-        // Shuffle options for display 
-        // We will shuffle them on render, but store them
+
         const options = [optA, optB, optC, optD].filter(Boolean);
-        
+
         questions.push({
-            id: 'q_' + Math.random().toString(36).substr(2, 5),
             text: text,
             options: options,
-            answerHash: ansHash
+            correct_answer: optA
         });
     }
 
-    state.courses.push({
-        id: courseId, title: title, description: desc, videoUrl: url,
-        passingScore: score, roles: roles, questions: questions
-    });
+    try {
+        const courseId = 'c-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+        await apiCall('/courses', 'POST', {
+            course_id: courseId,
+            title: title,
+            description: desc,
+            video_url: url,
+            passingScore: score,
+            assigned_roles: roles,
+            questions: questions
+        });
+        showToast(`Course "${title}" created successfully.`);
+        closeModals();
+        await initAdminDashboard(); // Refresh course list
+    } catch(err) {
+        showToast(`Failed to create course: ${err.message}`);
+        console.error(err);
+    }
 
-    showToast(`Course "${title}" created successfully.`);
-    closeModals();
-    renderCourseTable();
-    populateAssignmentDropdowns();
-    renderSkillGapDashboard();
+    btn.disabled = false;
+    btn.textContent = originalText;
 }
 
 // Skill Gap Matrix
 function renderSkillGapDashboard() {
     const employees = state.users.filter(u => u.role === 'employee');
     const courses = state.courses;
-    
+
     // Matrix Table
     let tableHTML = '<thead><tr><th>Employee</th>';
     courses.forEach(c => tableHTML += `<th>${c.title}</th>`);
@@ -672,7 +729,7 @@ function renderSkillGapDashboard() {
     Object.keys(depts).forEach(dept => {
         const d = depts[dept];
         const pct = d.total === 0 ? 0 : Math.round((d.passed / d.total) * 100);
-        
+
         const row = document.createElement('div');
         row.className = 'bar-row';
         row.innerHTML = `
@@ -694,7 +751,21 @@ function renderSkillGapDashboard() {
 /* ====================================
    EMPLOYEE DASHBOARD LOGIC 
    ==================================== */
-function initEmployeeDashboard() {
+async function initEmployeeDashboard() {
+    try {
+        const res = await apiCall('/courses', 'GET');
+        // Employee courses might be returned as an array directly or inside a wrapper.
+        // If the backend returns assigned courses directly, map them. Otherwise, fall back.
+        state.courses = Array.isArray(res) ? res : (res.courses || []);
+        
+        // Also try to fetch assignments or completions if there's an endpoint.
+        // Assuming GET /completions or /users/{id}/courses or they are embedded.
+        // For now, if no assignments API exists, assume `state.courses` includes assignment status.
+        state.assignments = state.courses.map(c => c.assignment || { status: 'Not Started', attempts: 0 });
+    } catch(e) {
+        console.error("Failed to load employee courses", e);
+    }
+    
     renderMyCourses();
     renderCertificates();
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-courses');
@@ -703,7 +774,7 @@ function initEmployeeDashboard() {
 function renderMyCourses() {
     UI.employee.coursesList.innerHTML = '';
     const myAssignments = state.assignments.filter(a => a.userId === state.currentUser.id);
-    
+
     if (myAssignments.length === 0) {
         UI.employee.coursesList.innerHTML = '<p>No courses assigned.</p>';
         return;
@@ -713,12 +784,12 @@ function renderMyCourses() {
 
     myAssignments.forEach(assignment => {
         const course = state.courses.find(c => c.id === assignment.courseId);
-        if(!course) return;
+        if (!course) return;
 
         let statusClass = 'status-grey';
-        if(assignment.status === 'Passed') statusClass = 'status-green';
-        else if(assignment.status === 'Failed') statusClass = 'status-red';
-        else if(assignment.status === 'In Progress') statusClass = 'status-blue';
+        if (assignment.status === 'Passed') statusClass = 'status-green';
+        else if (assignment.status === 'Failed') statusClass = 'status-red';
+        else if (assignment.status === 'In Progress') statusClass = 'status-blue';
 
         let isOverdue = (assignment.status !== 'Passed' && assignment.dueDate && assignment.dueDate < today);
 
@@ -731,7 +802,7 @@ function renderMyCourses() {
                 <span class="badge ${statusClass}">${assignment.status}</span>
                 <span class="due-date ${isOverdue ? 'overdue' : ''}">Due: ${assignment.dueDate || 'N/A'}</span>
             </div>
-            ${assignment.status !== 'Passed' && assignment.attempts >= 3 ? 
+            ${assignment.status !== 'Passed' && assignment.attempts >= 3 ?
                 `<button class="btn btn-secondary" disabled>Max Attempts Reached</button>` :
                 `<button class="btn btn-primary btn-view-course" data-assignment="${assignment.id}">Go to Course</button>`
             }
@@ -749,46 +820,60 @@ function renderMyCourses() {
 
 function openCourseViewer(assignmentId) {
     const assignment = state.assignments.find(a => a.id === assignmentId);
-    if(assignment.status === 'Not Started') {
+    if (assignment.status === 'Not Started') {
         assignment.status = 'In Progress'; // update status
         renderMyCourses(); // refresh ui side
     }
     const course = state.courses.find(c => c.id === assignment.courseId);
-    
+
     UI.employee.viewerTitle.textContent = course.title;
     UI.employee.videoContainer.innerHTML = `<iframe src="${course.videoUrl}" frameborder="0" allowfullscreen></iframe>`;
-    
+
     // Prepare quiz state
     state.activeQuiz = {
         assignment: assignment,
         course: course,
         currentQuestionIndex: 0,
         score: 0,
-        shuffledQuestions: [...course.questions].map(q => {
-            return {
-                ...q,
-                shuffledOptions: [...q.options].sort(() => Math.random() - 0.5) // basic shuffle
-            }
-        }),
-        userAnswersHash: []
+        shuffledQuestions: [],
+        userAnswers: []
     };
 
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-course-viewer');
 }
 
 // Quiz Engine
-function startQuiz() {
-    if(!state.activeQuiz) return;
+async function startQuiz() {
+    if (!state.activeQuiz) return;
     document.getElementById('quiz-result-container').classList.add('hidden');
     document.getElementById('quiz-question-container').classList.remove('hidden');
-    document.getElementById('btn-quiz-next').classList.remove('hidden');
     
+    const btnNext = document.getElementById('btn-quiz-next');
+    btnNext.classList.remove('hidden');
+    btnNext.textContent = 'Loading Questions...';
+    btnNext.disabled = true;
+
+    try {
+        const res = await apiCall(`/courses/${state.activeQuiz.course.id}/quiz`, 'GET');
+        const questions = Array.isArray(res) ? res : (res.questions || []);
+        
+        state.activeQuiz.shuffledQuestions = questions.map(q => ({
+            ...q,
+            shuffledOptions: [...(q.options || [])].sort(() => Math.random() - 0.5)
+        }));
+    } catch(err) {
+        showToast("Failed to fetch questions");
+        console.error(err);
+        return;
+    }
+
     state.activeQuiz.currentQuestionIndex = 0;
     state.activeQuiz.score = 0;
-    state.activeQuiz.userAnswersHash = [];
-    
+    state.activeQuiz.userAnswers = [];
+
+    btnNext.disabled = false;
     UI.employee.panels.quiz.querySelector('#quiz-course-title').textContent = `Quiz: ${state.activeQuiz.course.title}`;
-    
+
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-quiz-engine');
     renderQuestion();
 }
@@ -797,14 +882,14 @@ function renderQuestion() {
     const idx = state.activeQuiz.currentQuestionIndex;
     const qObj = state.activeQuiz.shuffledQuestions[idx];
     const total = state.activeQuiz.shuffledQuestions.length;
-    
+
     // progress bar
     document.getElementById('quiz-progress-fill').style.width = `${((idx) / total) * 100}%`;
 
-    document.getElementById('quiz-question-text').textContent = `Q${idx+1}: ${qObj.text}`;
+    document.getElementById('quiz-question-text').textContent = `Q${idx + 1}: ${qObj.text}`;
     const optsContainer = document.getElementById('quiz-options-group');
     optsContainer.innerHTML = '';
-    
+
     qObj.shuffledOptions.forEach((opt, i) => {
         const div = document.createElement('div');
         div.className = 'quiz-option';
@@ -835,66 +920,81 @@ async function handleNextQuestion() {
         return;
     }
 
-    // Hash the answer and store
-    const hash = await hashString(selected.value);
-    state.activeQuiz.userAnswersHash.push(hash);
+    const currentQ = state.activeQuiz.shuffledQuestions[state.activeQuiz.currentQuestionIndex];
+    state.activeQuiz.userAnswers.push({
+        questionId: currentQ.id || currentQ.text,
+        selected_answer: selected.value,
+        answer: selected.value // Include both for compatibility
+    });
 
     state.activeQuiz.currentQuestionIndex++;
-    
+
     if (state.activeQuiz.currentQuestionIndex >= state.activeQuiz.shuffledQuestions.length) {
-        finishQuiz();
+        await finishQuiz();
     } else {
         renderQuestion();
     }
 }
 
-function finishQuiz() {
+async function finishQuiz() {
     document.getElementById('quiz-progress-fill').style.width = '100%';
     
-    // Grade hashes
-    let correctCount = 0;
-    const questions = state.activeQuiz.shuffledQuestions;
-    for(let i=0; i<questions.length; i++) {
-        if (state.activeQuiz.userAnswersHash[i] === questions[i].answerHash) {
-            correctCount++;
-        }
+    const btnNext = document.getElementById('btn-quiz-next');
+    btnNext.disabled = true;
+    btnNext.textContent = 'Submitting...';
+
+    let passed = false;
+    let score = 0;
+    let attempts = (state.activeQuiz.assignment.attempts || 0) + 1;
+
+    try {
+        const res = await apiCall(`/courses/${state.activeQuiz.course.id}/quiz/submit`, 'POST', {
+            answers: state.activeQuiz.userAnswers
+        });
+        
+        passed = res.passed === true || (res.status && res.status.toLowerCase() === 'passed');
+        score = res.score || 0;
+        if (res.attempts !== undefined) attempts = res.attempts;
+        
+        state.activeQuiz.assignment.status = passed ? 'Passed' : (attempts >= 3 ? 'Failed' : 'In Progress');
+        state.activeQuiz.assignment.score = score;
+        state.activeQuiz.assignment.attempts = attempts;
+        
+    } catch(err) {
+        showToast(`Failed to submit: ${err.message}`);
+        console.error(err);
+        btnNext.disabled = false;
+        btnNext.textContent = 'Submit Answers';
+        return;
     }
 
-    const pct = Math.round((correctCount / questions.length) * 100);
-    const passed = pct >= state.activeQuiz.course.passingScore;
-    
-    state.activeQuiz.assignment.attempts++; // increment attempt tracker
-    
     document.getElementById('quiz-question-container').classList.add('hidden');
-    document.getElementById('btn-quiz-next').classList.add('hidden');
-    
+    btnNext.classList.add('hidden');
+    btnNext.disabled = false;
+
     const resContainer = document.getElementById('quiz-result-container');
     resContainer.classList.remove('hidden');
-    
+
     const title = document.getElementById('quiz-result-title');
     title.textContent = passed ? 'Congratulations! You Passed.' : 'You failed the quiz.';
     title.style.color = passed ? 'var(--status-green)' : 'var(--status-red)';
-    
-    document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${pct}%</strong> (Required: ${state.activeQuiz.course.passingScore}%)`;
-    document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${state.activeQuiz.assignment.attempts} / 3`;
+
+    document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${score}%</strong> (Required: ${state.activeQuiz.course.passingScore}%)`;
+    document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${attempts} / 3`;
 
     if (passed) {
-        state.activeQuiz.assignment.status = 'Passed';
-        state.activeQuiz.assignment.score = pct;
         document.getElementById('btn-quiz-retake').classList.add('hidden');
         generateCertificate(state.activeQuiz.course);
         showToast("Passed! Certificate generated.");
     } else {
-        if(state.activeQuiz.assignment.attempts >= 3) {
-            state.activeQuiz.assignment.status = 'Failed';
+        if (attempts >= 3) {
             document.getElementById('btn-quiz-retake').classList.add('hidden');
             showToast("Max attempts reached.");
         } else {
             document.getElementById('btn-quiz-retake').classList.remove('hidden');
         }
-        state.activeQuiz.assignment.score = pct; // Keep highest? Just keep last
     }
-    
+
     renderMyCourses();
 }
 
@@ -915,7 +1015,7 @@ function generateCertificate(course) {
 function renderCertificates() {
     UI.employee.certList.innerHTML = '';
     const myCerts = state.certificates.filter(c => c.userId === state.currentUser.id);
-    
+
     if (myCerts.length === 0) {
         UI.employee.certList.innerHTML = '<p>No certificates earned yet.</p>';
         return;
@@ -961,7 +1061,7 @@ function verifyCertificate(e) {
     resultDiv.style.marginTop = '1rem';
     resultDiv.style.padding = '1rem';
     resultDiv.style.borderRadius = '0.375rem';
-    
+
     const cert = state.certificates.find(c => c.id === id);
     if (cert) {
         resultDiv.style.backgroundColor = 'var(--status-green-bg)';

@@ -1,0 +1,50 @@
+name: Deploy to Amazon S3
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    name: Deploy to S3
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }} # e.g. ap-south-1
+
+      - name: Sync Frontend to S3
+        run: |
+          # Syncs files to S3 bucket, deletes files on S3 that are removed locally
+          aws s3 sync . s3://${{ secrets.S3_BUCKET_NAME }} \
+            --delete \
+            --exclude ".git/*" \
+            --exclude ".github/*" \
+            --exclude "README.md" \
+            --exclude ".gitignore" \
+            --exclude "lms-project/*"
+            
+      - name: Sync Backend to Backend S3 Bucket (Optional)
+        # Only runs if you add a BACKEND_BUCKET_NAME secret to GitHub
+        if: ${{ env.BACKEND_BUCKET != '' }}
+        env:
+          BACKEND_BUCKET: ${{ secrets.BACKEND_BUCKET_NAME }}
+        run: |
+          aws s3 sync lms-project/ s3://${{ env.BACKEND_BUCKET }} \
+            --delete
+
+      # Optional: Invalidate CloudFront (Uncomment if you use CloudFront)
+      # - name: Invalidate CloudFront Cache
+      #   run: |
+      #     aws cloudfront create-invalidation \
+      #       --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+      #       --paths "/*"

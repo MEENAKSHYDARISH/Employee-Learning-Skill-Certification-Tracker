@@ -7,6 +7,7 @@ import {
   BatchWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { randomUUID } from "crypto"; // ✅ Added
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -19,18 +20,17 @@ export const handler = async (event) => {
   try {
     // ROUTE 1: POST /courses (Create Course)
     if (httpMethod === "POST" && resource === "/courses") {
-      const { course_id, title, description, video_url, assigned_roles } = body;
+      const { title, description, video_url, assigned_roles } = body; // ✅ Removed course_id from here
+      const course_id = randomUUID(); // ✅ Generate it here
 
       await docClient.send(
         new PutCommand({
           TableName: "courses",
           Item: {
-            course_id,
+            course_id, // ✅ Always present now
             title,
             description,
             video_url,
-            // CHANGE THIS: Join the array into a single string or pick the first one
-            // For your GSI to work, it needs a single String (S)
             assigned_roles: Array.isArray(assigned_roles)
               ? assigned_roles[0]
               : assigned_roles,
@@ -69,6 +69,7 @@ export const handler = async (event) => {
       const targetUsers = usersData.Items.filter(
         (user) => course.assigned_roles === user.role,
       );
+
       // 3. Batch Write to completions table & Send SES Emails
       const completionItems = targetUsers.map((user) => ({
         PutRequest: {
@@ -102,7 +103,7 @@ export const handler = async (event) => {
               },
               Subject: { Data: "New Course Assignment" },
             },
-            Source: "saeetarde@gmail.com", // Must be verified in SES
+            Source: "saeetarde@gmail.com",
           }),
         );
       });
@@ -123,6 +124,7 @@ const response = (statusCode, body) => ({
   headers: {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   },
   body: JSON.stringify(body),
 });

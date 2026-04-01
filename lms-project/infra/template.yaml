@@ -7,6 +7,11 @@ Globals:
     Timeout: 30
     MemorySize: 128
     Runtime: nodejs20.x
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowMethods: "'*'"
+      AllowHeaders: "'*' "
 
 Resources:
   ### 1. Course & User Management Function ###
@@ -29,6 +34,7 @@ Resources:
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/courses"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/users"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/completions"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/quiz_answers"
             - Effect: Allow
               Action:
                 - ses:SendEmail
