@@ -122,11 +122,8 @@ async function apiCall(path, method = 'GET', body = null) {
     const baseUrl = isUsersApi ? USERS_API_BASE_URL : LMS_API_BASE_URL;
     const headers = {};
 
-    // Users API is protected by Cognito authorizer; LMS API currently is not.
-    // Avoid sending Authorization to LMS endpoints to prevent unnecessary preflight failures.
-    if (isUsersApi) {
-        headers['Authorization'] = idToken;
-    }
+    // Send the Cognito auth token to all APIs.
+    headers['Authorization'] = idToken;
     if (body) {
         headers['Content-Type'] = 'application/json';
     }
