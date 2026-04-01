@@ -11,8 +11,79 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
-import PDFDocument from "pdfkit";
 import crypto from "crypto";
+
+function createPdfBuffer({ userName, courseTitle, certId, date }) {
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const escapeText = (text) =>
+    text
+      .replace(/\\/g, "\\\\")
+      .replace(/\(/g, "\\(")
+      .replace(/\)/g, "\\)");
+
+  const lines = [
+    { size: 40, y: 520, text: "CERTIFICATE OF COMPLETION" },
+    { size: 20, y: 470, text: "This is to certify that" },
+    { size: 30, y: 430, text: userName },
+    { size: 20, y: 380, text: `has successfully passed ${courseTitle}` },
+    { size: 12, y: 340, text: `Date: ${date} | Certificate ID: ${certId}` },
+  ];
+
+  const contentLines = lines
+    .map(
+      (line) =>
+        `/F1 ${line.size} Tf\n100 ${line.y} Td\n(${escapeText(
+          line.text,
+        )}) Tj`,
+    )
+    .join("\n");
+
+  const content = `q\n1 w\n20 20 ${pageWidth - 40} ${pageHeight - 40} re\nS\nQ\nBT\n${contentLines}\nET\n`;
+  const contentBytes = Buffer.from(content, "utf8");
+
+  const header = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const objects = [];
+
+  objects.push(
+    `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`,
+  );
+  objects.push(
+    `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`,
+  );
+  objects.push(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
+  );
+  objects.push(
+    `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`,
+  );
+  objects.push(
+    `5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n${content}endstream\nendobj\n`,
+  );
+
+  const buffers = [Buffer.from(header, "utf8")];
+  const offsets = [0];
+  let position = Buffer.byteLength(header, "utf8");
+
+  for (const obj of objects) {
+    offsets.push(position);
+    const buffer = Buffer.from(obj, "utf8");
+    buffers.push(buffer);
+    position += buffer.length;
+  }
+
+  const xrefStart = position;
+  let xref = "xref\n0 6\n";
+  xref += `0000000000 65535 f \n`;
+  for (let i = 1; i < offsets.length; i++) {
+    xref += `${offsets[i].toString().padStart(10, "0")} 00000 n \n`;
+  }
+
+  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+  buffers.push(Buffer.from(xref + trailer, "utf8"));
+
+  return Buffer.concat(buffers);
+}
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
@@ -44,29 +115,11 @@ export const handler = async (event) => {
     const date = new Date().toLocaleDateString();
 
     // 2. Generate PDF in Memory
-    const pdfBuffer = await new Promise((resolve) => {
-      const doc = new PDFDocument({ size: "A4", layout: "landscape" });
-      let buffers = [];
-      doc.on("data", buffers.push.bind(buffers));
-      doc.on("end", () => resolve(Buffer.concat(buffers)));
-
-      // Design
-      doc
-        .rect(20, 20, doc.page.width - 40, doc.page.height - 40)
-        .stroke("#1a3a5c");
-      doc.fontSize(40).text("CERTIFICATE OF COMPLETION", { align: "center" });
-      doc.moveDown();
-      doc.fontSize(20).text("This is to certify that", { align: "center" });
-      doc.fontSize(30).fillColor("#1a3a5c").text(userName, { align: "center" });
-      doc
-        .fillColor("black")
-        .fontSize(20)
-        .text(`has successfully passed ${courseTitle}`, { align: "center" });
-      doc.moveDown();
-      doc
-        .fontSize(12)
-        .text(`Date: ${date} | Certificate ID: ${certId}`, { align: "center" });
-      doc.end();
+    const pdfBuffer = createPdfBuffer({
+      userName,
+      courseTitle,
+      certId,
+      date,
     });
 
     // 3. Upload to S3

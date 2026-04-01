@@ -8,10 +8,11 @@ Globals:
     MemorySize: 128
     Runtime: nodejs20.x
   Api:
+    StageName: backend
     Cors:
-      AllowOrigin: "'*'"
-      AllowMethods: "'GET,POST,OPTIONS'"
-      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "*"
+      AllowMethods: "GET,POST,OPTIONS"
+      AllowHeaders: "Content-Type,Authorization"
 
 Resources:
   ### 1. Course & User Management Function ###
@@ -90,18 +91,18 @@ Resources:
             Path: /courses/{id}/quiz
             Method: get
             Cors:
-              AllowOrigin: "'*'"
-              AllowMethods: "'GET,POST,OPTIONS'"
-              AllowHeaders: "'Content-Type,Authorization'"
+              AllowOrigin: "*"
+              AllowMethods: "GET,POST,OPTIONS"
+              AllowHeaders: "Content-Type,Authorization"
         SubmitQuiz:
           Type: Api
           Properties:
             Path: /courses/{id}/quiz/submit
             Method: post
             Cors:
-              AllowOrigin: "'*'"
-              AllowMethods: "'GET,POST,OPTIONS'"
-              AllowHeaders: "'Content-Type,Authorization'"
+              AllowOrigin: "*"
+              AllowMethods: "GET,POST,OPTIONS"
+              AllowHeaders: "Content-Type,Authorization"
 
   ### 3. Certificate Generation Function ###
   CertificateFunction:
@@ -202,5 +203,5 @@ Resources:
 
 Outputs:
   CourseApi:
-    Description: "API Gateway endpoint URL for Prod stage"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+    Description: "API Gateway endpoint URL for backend stage"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/backend/"

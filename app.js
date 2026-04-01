@@ -133,6 +133,7 @@ async function apiCall(path, method = 'GET', body = null) {
 
     const options = { method, headers, mode: 'cors' };
     if (body) options.body = JSON.stringify(body);
+    console.log(options)
     const res = await fetch(`${baseUrl}${path}`, options);
 
     if (!res.ok) {
