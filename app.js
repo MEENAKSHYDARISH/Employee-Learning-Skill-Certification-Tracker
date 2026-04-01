@@ -564,6 +564,9 @@ async function handleAssignCourse(e) {
     try {
         const res = await apiCall(`/courses/${courseId}/assign`, 'POST', { target: target, due_date: dueDate });
         showToast(res?.message || `Course assigned successfully.`);
+        if (Array.isArray(res?.emailFailures) && res.emailFailures.length > 0) {
+            console.warn('Assignment email failures:', res.emailFailures);
+        }
         e.target.reset();
         await initAdminDashboard(); // Refresh matrix
     } catch(err) {
@@ -773,6 +776,25 @@ async function initEmployeeDashboard() {
     switchPanel(UI.employee.nav, UI.employee.panels, 'emp-courses');
 }
 
+function getVideoEmbedUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return null;
+    const url = rawUrl.trim();
+
+    const youtubeWatch = /(?:youtube\.com\/watch\?v=|youtube\.com\/watch\?.*v=)([A-Za-z0-9_-]+)/i;
+    const youtubeShort = /youtu\.be\/([A-Za-z0-9_-]+)/i;
+    const embedMatch = youtubeWatch.exec(url) || youtubeShort.exec(url);
+    if (embedMatch && embedMatch[1]) {
+        return `https://www.youtube.com/embed/${embedMatch[1]}`;
+    }
+
+    const vimeoMatch = /vimeo\.com\/(\d+)/i.exec(url);
+    if (vimeoMatch && vimeoMatch[1]) {
+        return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+    }
+
+    return null;
+}
+
 function renderMyCourses() {
     UI.employee.coursesList.innerHTML = '';
     const myCourses = state.courses || [];
@@ -834,8 +856,19 @@ function openCourseViewer(courseId) {
     const course = (state.courses || []).find(c => c.course_id === courseId);
     if (!course) return;
 
+    const rawUrl = course.video_url || course.videoUrl || "";
+    const embedUrl = getVideoEmbedUrl(rawUrl);
+
     UI.employee.viewerTitle.textContent = course.title;
-    UI.employee.videoContainer.innerHTML = `<iframe src="${course.video_url || course.videoUrl}" frameborder="0" allowfullscreen></iframe>`;
+    if (embedUrl) {
+        UI.employee.videoContainer.innerHTML = `<iframe src="${embedUrl}" frameborder="0" allowfullscreen></iframe>`;
+    } else if (rawUrl) {
+        UI.employee.videoContainer.innerHTML = `
+            <p>This video cannot be embedded directly. <a href="${rawUrl}" target="_blank" rel="noopener">Open video in a new tab</a></p>
+        `;
+    } else {
+        UI.employee.videoContainer.innerHTML = `<p>No video URL provided for this course.</p>`;
+    }
 
     // Prepare quiz state
     state.activeQuiz = {
