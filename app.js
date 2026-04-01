@@ -1012,6 +1012,7 @@ async function finishQuiz() {
     let passed = false;
     let score = 0;
     let attempts = 0;
+    let cert_id = null;
 
     try {
         const res = await apiCall(`/courses/${state.activeQuiz.course.course_id}/quiz/submit`, 'POST', {
@@ -1023,9 +1024,10 @@ async function finishQuiz() {
             }))
         });
         
-        passed = res.status === 'passed';
+        passed = res.passed === true;
         score = res.score || 0;
         attempts = res.attempts || 0;
+        const cert_id = res.cert_id || null;
         
     } catch(err) {
         showToast(`Failed to submit: ${err.message}`);
@@ -1051,9 +1053,14 @@ async function finishQuiz() {
 
     if (passed) {
         document.getElementById('btn-quiz-retake').classList.add('hidden');
-        showToast("Passed! Certificate is being generated.");
+        showToast("Passed! Certificate generated.");
+        if (cert_id) {
+            document.getElementById('quiz-result-attempts').innerHTML = 
+                `Certificate ID: <strong>${cert_id}</strong>`;
+        }
     } else {
         document.getElementById('btn-quiz-retake').classList.remove('hidden');
+        showToast(res.message || "You failed. Please try again.");
     }
 
     await initEmployeeDashboard();
