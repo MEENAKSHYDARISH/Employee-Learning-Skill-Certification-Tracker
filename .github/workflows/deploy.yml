@@ -30,7 +30,8 @@ jobs:
             --exclude ".git/*" \
             --exclude ".github/*" \
             --exclude "README.md" \
-            --exclude ".gitignore"
+            --exclude ".gitignore" \
+            --exclude "lms-project/*"
 
       # Optional: Invalidate CloudFront (Uncomment if you use CloudFront)
       # - name: Invalidate CloudFront Cache
