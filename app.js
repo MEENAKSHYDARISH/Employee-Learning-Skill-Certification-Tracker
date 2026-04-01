@@ -991,7 +991,7 @@ async function handleNextQuestion() {
 
     const currentQ = state.activeQuiz.shuffledQuestions[state.activeQuiz.currentQuestionIndex];
     state.activeQuiz.userAnswers.push({
-        question_id: currentQ.question_id || currentQ.id || currentQ.text,
+        question_id: currentQ.question_id || currentQ.id,
         selected_answer: selected.value,
         answer: selected.value // Include both for compatibility
     });
@@ -1018,14 +1018,15 @@ async function finishQuiz() {
 
     try {
         const res = await apiCall(`/courses/${state.activeQuiz.course.course_id}/quiz/submit`, 'POST', {
-            employee_id: state.currentUser.id,
+            employee_id: state.currentUser.employee_id || state.currentUser.id,
             answers: state.activeQuiz.userAnswers.map(a => ({
-                question_id: a.question_id,
+                questionId: a.question_id,
+                selected_answer: a.answer,
                 answer: a.answer
             }))
         });
         
-        passed = res.status && res.status.toLowerCase() === 'passed';
+        passed = res.passed === true;
         score = res.score || 0;
         
     } catch(err) {
