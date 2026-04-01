@@ -185,7 +185,7 @@ export const handler = async (event) => {
                 },
                 Subject: { Data: "New Course Assignment" },
               },
-              Source: sender,
+              Source: "saeetarde@gmail.com",
             }),
           ),
         );
