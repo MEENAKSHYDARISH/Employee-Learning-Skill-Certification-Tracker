@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: LMS Project - Course Service connected to manual tables
+Description: LMS Project - Full Backend Service with Quiz and Certificate Logic
 
 Globals:
   Function:
@@ -9,6 +9,7 @@ Globals:
     Runtime: nodejs20.x
 
 Resources:
+  ### 1. Course & User Management Function ###
   CourseFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -26,7 +27,6 @@ Resources:
                 - dynamodb:BatchWriteItem
               Resource:
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/courses"
-                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/courses/index/*"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/users"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/completions"
             - Effect: Allow
@@ -51,11 +51,15 @@ Resources:
             Path: /courses/{id}/assign
             Method: post
 
+  ### 2. Quiz & Grading Function ###
   QuizFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ../lambdas/quiz/
       Handler: index.handler
+      Environment:
+        Variables:
+          CERTIFICATE_FUNCTION_NAME: !Ref CertificateFunction
       Policies:
         - Statement:
             - Effect: Allow
@@ -66,6 +70,10 @@ Resources:
               Resource:
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/quiz_answers"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/completions"
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt CertificateFunction.Arn
       Events:
         GetQuiz:
           Type: Api
@@ -77,6 +85,104 @@ Resources:
           Properties:
             Path: /courses/{id}/quiz/submit
             Method: post
+
+  ### 3. Certificate Generation Function ###
+  CertificateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../lambdas/certificate/
+      Handler: index.handler
+      Environment:
+        Variables:
+          CERT_BUCKET: !Ref CertificatesBucket
+          SES_SENDER: "saeetarde@gmail.com" # Change this to your SES verified email
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref CertificatesBucket
+        - SESCrudPolicy:
+            IdentityName: "*" # Or your specific domain/email
+        - DynamoDBCrudPolicy:
+            TableName: certificates
+        - DynamoDBReadPolicy:
+            TableName: users
+        - DynamoDBReadPolicy:
+            TableName: courses
+
+  ### 4. Storage & Database Resources ###
+  CertificatesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  CertificatesTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: certificates
+      PrimaryKey:
+        Name: cert_id
+        Type: String
+
+  VerifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../lambdas/verify/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: certificates
+        - DynamoDBReadPolicy:
+            TableName: users
+        - DynamoDBReadPolicy:
+            TableName: courses
+      Events:
+        VerifyCert:
+          Type: Api
+          Properties:
+            Path: /verify/{id}
+            Method: get
+
+  NotifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../lambdas/notify/
+      Handler: index.handler
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: "arn:aws:sns:ap-south-1:169415370420:LMS-Overdue-Alerts"
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: completions
+        - SNSPublishMessagePolicy:
+            TopicName: "LMS-Overdue-Alerts" # Must match the end of your ARN
+      Events:
+        DailyCheck:
+          Type: Schedule
+          Properties:
+            Schedule: "rate(1 day)" # Runs every 24 hours
+            # Or use cron for specific time: "cron(0 9 * * ? *)" for 9 AM UTC
+  DashboardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../lambdas/dashboard/
+      Handler: index.handler
+      Environment:
+        Variables:
+          CERT_BUCKET: !Ref CertificatesBucket
+      Policies:
+        - DynamoDBReadPolicy: { TableName: "users" }
+        - DynamoDBReadPolicy: { TableName: "courses" }
+        - DynamoDBReadPolicy: { TableName: "completions" }
+        - DynamoDBReadPolicy: { TableName: "certificates" }
+      Events:
+        GetDashboard:
+          Type: Api
+          Properties:
+            Path: /employees/{id}/dashboard
+            Method: get
+
 Outputs:
   CourseApi:
     Description: "API Gateway endpoint URL for Prod stage"

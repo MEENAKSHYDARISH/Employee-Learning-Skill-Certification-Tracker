@@ -1,5 +1,5 @@
 {
-  "name": "quiz",
+  "name": "certificate",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -10,8 +10,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1019.0",
-    "@aws-sdk/client-lambda": "^3.1020.0",
-    "@aws-sdk/lib-dynamodb": "^3.1019.0"
+    "@aws-sdk/client-s3": "^3.1020.0",
+    "@aws-sdk/s3-request-presigner": "^3.1020.0",
+    "pdfkit": "^0.18.0"
   }
 }
