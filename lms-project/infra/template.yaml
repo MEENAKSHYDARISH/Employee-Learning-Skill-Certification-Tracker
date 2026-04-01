@@ -34,6 +34,7 @@ Resources:
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/courses/index/*"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/users"
                 - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/completions"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/quiz_answers"
             - Effect: Allow
               Action:
                 - ses:SendEmail

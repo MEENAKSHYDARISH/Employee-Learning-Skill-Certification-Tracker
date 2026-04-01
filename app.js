@@ -643,10 +643,12 @@ async function handleCreateCourse(e) {
     }
 
     try {
+        const courseId = 'c-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
         await apiCall('/courses', 'POST', {
+            course_id: courseId,
             title: title,
             description: desc,
-            videoUrl: url,
+            video_url: url,
             passingScore: score,
             assigned_roles: roles,
             questions: questions
