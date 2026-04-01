@@ -89,11 +89,19 @@ Resources:
           Properties:
             Path: /courses/{id}/quiz
             Method: get
+            Cors:
+              AllowOrigin: "'*'"
+              AllowMethods: "'GET,POST,OPTIONS'"
+              AllowHeaders: "'Content-Type,Authorization'"
         SubmitQuiz:
           Type: Api
           Properties:
             Path: /courses/{id}/quiz/submit
             Method: post
+            Cors:
+              AllowOrigin: "'*'"
+              AllowMethods: "'GET,POST,OPTIONS'"
+              AllowHeaders: "'Content-Type,Authorization'"
 
   ### 3. Certificate Generation Function ###
   CertificateFunction:

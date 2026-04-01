@@ -14,10 +14,24 @@ const lambdaClient = new LambdaClient({}); // Added for Step 6
 
 export const handler = async (event) => {
   const { httpMethod, pathParameters } = event;
-  const courseId = event.pathParameters?.id;
-  const body = event.body ? JSON.parse(event.body) : {};
+  const courseId = pathParameters?.id;
+
+  let body = {};
+  if (event.body) {
+    try {
+      body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    } catch (err) {
+      console.error('Failed to parse event.body:', err, event.body);
+      return response(400, { error: 'Invalid JSON body' });
+    }
+  }
 
   try {
+    // OPTIONS preflight support
+    if (httpMethod === "OPTIONS") {
+      return response(204, {});
+    }
+
     // ROUTE 1: GET /courses/{id}/quiz (Fetch Questions)
     if (httpMethod === "GET") {
       const data = await docClient.send(

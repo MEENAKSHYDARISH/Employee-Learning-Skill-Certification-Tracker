@@ -131,7 +131,7 @@ async function apiCall(path, method = 'GET', body = null) {
         headers['Content-Type'] = 'application/json';
     }
 
-    const options = { method, headers };
+    const options = { method, headers, mode: 'cors' };
     if (body) options.body = JSON.stringify(body);
     const res = await fetch(`${baseUrl}${path}`, options);
 
@@ -778,18 +778,46 @@ async function initEmployeeDashboard() {
 
 function getVideoEmbedUrl(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return null;
-    const url = rawUrl.trim();
+    const urlString = rawUrl.trim();
 
-    const youtubeWatch = /(?:youtube\.com\/watch\?v=|youtube\.com\/watch\?.*v=)([A-Za-z0-9_-]+)/i;
-    const youtubeShort = /youtu\.be\/([A-Za-z0-9_-]+)/i;
-    const embedMatch = youtubeWatch.exec(url) || youtubeShort.exec(url);
-    if (embedMatch && embedMatch[1]) {
-        return `https://www.youtube.com/embed/${embedMatch[1]}`;
-    }
+    try {
+        const parsed = new URL(urlString);
+        const hostname = parsed.hostname.toLowerCase();
+        const pathname = parsed.pathname;
 
-    const vimeoMatch = /vimeo\.com\/(\d+)/i.exec(url);
-    if (vimeoMatch && vimeoMatch[1]) {
-        return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+        if (hostname.includes('youtube.com')) {
+            if (pathname.startsWith('/embed/')) {
+                return urlString;
+            }
+            if (pathname.startsWith('/watch')) {
+                const videoId = parsed.searchParams.get('v');
+                if (videoId) {
+                    return `https://www.youtube.com/embed/${videoId}`;
+                }
+            }
+            if (pathname.startsWith('/shorts/')) {
+                const videoId = pathname.split('/shorts/')[1];
+                if (videoId) {
+                    return `https://www.youtube.com/embed/${videoId}`;
+                }
+            }
+        }
+
+        if (hostname.includes('youtu.be')) {
+            const videoId = pathname.slice(1);
+            if (videoId) {
+                return `https://www.youtube.com/embed/${videoId}`;
+            }
+        }
+
+        if (hostname.includes('vimeo.com')) {
+            const videoId = pathname.split('/').filter(Boolean).pop();
+            if (videoId && /^\d+$/.test(videoId)) {
+                return `https://player.vimeo.com/video/${videoId}`;
+            }
+        }
+    } catch (err) {
+        return null;
     }
 
     return null;
