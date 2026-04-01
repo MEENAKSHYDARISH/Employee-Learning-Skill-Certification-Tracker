@@ -112,23 +112,27 @@ async function apiCall(path, method = 'GET', body = null) {
 
     const idToken = session.tokens.idToken.toString();
 
-    const options = {
-        method,
-        headers: {
-            'Authorization': idToken,
-            'Content-Type': 'application/json'
-        }
-    };
-
-    if (body) options.body = JSON.stringify(body);
-
     // The Cognito/Users API Gateway you already pasted
     const USERS_API_BASE_URL = 'https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod'; 
     // TODO: Paste your new Serverless LMS (Courses & Quizzes) API Gateway URL below
     const LMS_API_BASE_URL = 'https://yxa4h8pija.execute-api.ap-south-1.amazonaws.com/backend'; // Replace this line!
 
     // Route requests to the correct API Gateway
-    const baseUrl = path.startsWith('/users') ? USERS_API_BASE_URL : LMS_API_BASE_URL;
+    const isUsersApi = path.startsWith('/users');
+    const baseUrl = isUsersApi ? USERS_API_BASE_URL : LMS_API_BASE_URL;
+    const headers = {};
+
+    // Users API is protected by Cognito authorizer; LMS API currently is not.
+    // Avoid sending Authorization to LMS endpoints to prevent unnecessary preflight failures.
+    if (isUsersApi) {
+        headers['Authorization'] = idToken;
+    }
+    if (body) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    const options = { method, headers };
+    if (body) options.body = JSON.stringify(body);
     const res = await fetch(`${baseUrl}${path}`, options);
 
     if (!res.ok) {
