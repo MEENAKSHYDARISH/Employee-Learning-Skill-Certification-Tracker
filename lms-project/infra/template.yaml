@@ -7,6 +7,11 @@ Globals:
     Timeout: 30
     MemorySize: 128
     Runtime: nodejs20.x
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowMethods: "'*'"
+      AllowHeaders: "'*' "
 
 Resources:
   CourseFunction:
