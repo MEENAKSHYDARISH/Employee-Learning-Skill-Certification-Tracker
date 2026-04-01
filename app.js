@@ -505,13 +505,18 @@ async function initAdminDashboard() {
 function renderCourseTable() {
     UI.admin.courseTable.innerHTML = '';
     state.courses.forEach(course => {
+        const roleValue = course.assigned_roles ?? course.roles;
+        const roleDisplay = typeof roleValue === 'string' && roleValue.trim()
+            ? roleValue.trim()
+            : 'All';
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td><strong>${course.title}</strong></td>
             <td>${course.description}</td>
             <td><a href="${course.video_url || course.videoUrl}" target="_blank">Link</a></td>
             <td>${course.passingScore}%</td>
-            <td>${course.assigned_roles || course.roles || 'All'}</td>
+            <td>${roleDisplay}</td>
             <td><span class="badge status-blue">${course.questions ? course.questions.length : '?'} Qs</span></td>
         `;
         UI.admin.courseTable.appendChild(tr);
@@ -617,7 +622,7 @@ async function handleCreateCourse(e) {
     const url = document.getElementById('new-course-url').value;
     const score = parseInt(document.getElementById('new-course-score').value);
     const rolesStr = document.getElementById('new-course-roles').value;
-    const roles = rolesStr.split(',').map(r => r.trim());
+    const roles = rolesStr.trim();
 
     const btn = e.target.querySelector('button[type="submit"]');
     const originalText = btn.textContent;
