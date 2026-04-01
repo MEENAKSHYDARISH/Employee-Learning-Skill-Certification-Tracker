@@ -1015,16 +1015,17 @@ async function finishQuiz() {
 
     try {
         const res = await apiCall(`/courses/${state.activeQuiz.course.course_id}/quiz/submit`, 'POST', {
+            course_id: state.activeQuiz.course.course_id,
             employee_id: state.currentUser.employee_id || state.currentUser.id,
             answers: state.activeQuiz.userAnswers.map(a => ({
-                questionId: a.question_id,
-                selected_answer: a.answer,
+                question_id: a.question_id,
                 answer: a.answer
             }))
         });
         
-        passed = res.passed === true;
+        passed = res.status === 'passed';
         score = res.score || 0;
+        attempts = res.attempts || 0;
         
     } catch(err) {
         showToast(`Failed to submit: ${err.message}`);
