@@ -234,14 +234,7 @@ async function initApp() {
             setupUserState(authUser, profile, role);
         } catch (e) {
             if (e.message.includes('404')) {
-                // User not in DynamoDB yet — create profile
-                await apiCall('/users', 'POST', {
-                    employee_id: authUser.userId,
-                    email: authUser.username,
-                    name: authUser.username,
-                    role: role,
-                    department: 'Unassigned'
-                });
+                // Do not auto-create DB profile for already authenticated users.
                 setupUserState(authUser, null, role);
             } else {
                 // Any other error — show login
@@ -376,19 +369,8 @@ async function handleLogin(e) {
         } catch (e) {
             console.warn("Could not load user profile from DynamoDB.", e);
             if (e.message && e.message.includes("404")) {
-                try {
-                    console.log("Profile doesn't exist yet - creating it");
-                    await apiCall(`/users`, 'POST', {
-                        employee_id: result.userId,
-                        email: email,
-                        name: email.split('@')[0],
-                        role: result.role,
-                        department: 'Unassigned'
-                    });
-                    profile = { department: 'Unassigned', manager: 'N/A', employmentType: 'Full-time' };
-                } catch (err) {
-                    console.error('Profile sync error:', err);
-                }
+                // Do not auto-create DB profile on login.
+                profile = null;
             } else if (e.message && e.message.includes("401")) {
                 console.error("Token rejected by API. Check Cognito authorizer.");
                 showView('login');
