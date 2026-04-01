@@ -156,6 +156,7 @@ let state = {
     courses: [],
     assignments: [],
     certificates: [],
+    employeeDashboard: null,
     activeQuiz: null // For employee taking a quiz
 };
 
@@ -482,7 +483,11 @@ async function handleLogout() {
 async function initAdminDashboard() {
     try {
         const res = await apiCall('/courses', 'GET');
-        state.courses = Array.isArray(res) ? res : (res.courses || []);
+        const rawCourses = Array.isArray(res) ? res : (res.courses || []);
+        state.courses = rawCourses.map((c) => ({
+            ...c,
+            course_id: c?.course_id || c?.id || c?.courseId || c?.courseID,
+        }));
     } catch (e) {
         console.error("Failed to fetch courses", e);
         showToast("Error loading courses");
@@ -526,8 +531,9 @@ function renderCourseTable() {
 function populateAssignmentDropdowns() {
     UI.admin.assignCourseSelect.innerHTML = '<option value="">-- Select Course --</option>';
     state.courses.forEach(c => {
+        if (!c.course_id) return;
         const opt = document.createElement('option');
-        opt.value = c.course_id || c.id;
+        opt.value = c.course_id;
         opt.textContent = c.title;
         UI.admin.assignCourseSelect.appendChild(opt);
     });
@@ -549,6 +555,11 @@ async function handleAssignCourse(e) {
     const courseId = UI.admin.assignCourseSelect.value;
     const target = UI.admin.assignTargetSelect.value;
     const dueDate = document.getElementById('assign-due-date').value;
+
+    if (!courseId || courseId === 'undefined') {
+        showToast('Please select a valid course.');
+        return;
+    }
 
     const btn = e.target.querySelector('button[type="submit"]');
     const originalText = btn.textContent;
@@ -753,17 +764,13 @@ function renderSkillGapDashboard() {
    ==================================== */
 async function initEmployeeDashboard() {
     try {
-        const res = await apiCall('/courses', 'GET');
-        // Employee courses might be returned as an array directly or inside a wrapper.
-        // If the backend returns assigned courses directly, map them. Otherwise, fall back.
-        state.courses = Array.isArray(res) ? res : (res.courses || []);
-        
-        // Also try to fetch assignments or completions if there's an endpoint.
-        // Assuming GET /completions or /users/{id}/courses or they are embedded.
-        // For now, if no assignments API exists, assume `state.courses` includes assignment status.
-        state.assignments = state.courses.map(c => c.assignment || { status: 'Not Started', attempts: 0 });
+        const dash = await apiCall(`/employees/${state.currentUser.id}/dashboard`, 'GET');
+        state.employeeDashboard = dash;
+        state.courses = Array.isArray(dash?.courses) ? dash.courses : [];
     } catch(e) {
         console.error("Failed to load employee courses", e);
+        state.employeeDashboard = null;
+        state.courses = [];
     }
     
     renderMyCourses();
@@ -773,25 +780,35 @@ async function initEmployeeDashboard() {
 
 function renderMyCourses() {
     UI.employee.coursesList.innerHTML = '';
-    const myAssignments = state.assignments.filter(a => a.userId === state.currentUser.id);
-
-    if (myAssignments.length === 0) {
+    const myCourses = state.courses || [];
+    if (myCourses.length === 0) {
         UI.employee.coursesList.innerHTML = '<p>No courses assigned.</p>';
         return;
     }
 
     const today = new Date().toISOString().split('T')[0];
 
-    myAssignments.forEach(assignment => {
-        const course = state.courses.find(c => c.id === assignment.courseId);
-        if (!course) return;
+    myCourses.forEach(course => {
+        const statusRaw = (course.status || '').toString().toLowerCase();
+        const statusLabel =
+            statusRaw === 'passed' ? 'Passed' :
+            statusRaw === 'failed' ? 'Failed' :
+            statusRaw === 'not started' ? 'Not Started' :
+            statusRaw === 'not_started' ? 'Not Started' :
+            statusRaw === 'not-started' ? 'Not Started' :
+            statusRaw === 'in progress' ? 'In Progress' :
+            statusRaw === 'in_progress' ? 'In Progress' :
+            statusRaw === 'in-progress' ? 'In Progress' :
+            (course.status || 'Not Started');
 
         let statusClass = 'status-grey';
-        if (assignment.status === 'Passed') statusClass = 'status-green';
-        else if (assignment.status === 'Failed') statusClass = 'status-red';
-        else if (assignment.status === 'In Progress') statusClass = 'status-blue';
+        if (statusLabel === 'Passed') statusClass = 'status-green';
+        else if (statusLabel === 'Failed') statusClass = 'status-red';
+        else if (statusLabel === 'In Progress') statusClass = 'status-blue';
 
-        let isOverdue = (assignment.status !== 'Passed' && assignment.dueDate && assignment.dueDate < today);
+        const dueDate = course.due_date || course.dueDate || null;
+        const attempts = course.attempts ?? course.attempt_count ?? 0;
+        const isOverdue = (statusLabel !== 'Passed' && dueDate && dueDate < today);
 
         const card = document.createElement('div');
         card.className = 'course-card';
@@ -799,12 +816,12 @@ function renderMyCourses() {
             <h3>${course.title}</h3>
             <p>${course.description}</p>
             <div class="course-meta">
-                <span class="badge ${statusClass}">${assignment.status}</span>
-                <span class="due-date ${isOverdue ? 'overdue' : ''}">Due: ${assignment.dueDate || 'N/A'}</span>
+                <span class="badge ${statusClass}">${statusLabel}</span>
+                <span class="due-date ${isOverdue ? 'overdue' : ''}">Due: ${dueDate || 'N/A'}</span>
             </div>
-            ${assignment.status !== 'Passed' && assignment.attempts >= 3 ?
+            ${statusLabel !== 'Passed' && attempts >= 3 ?
                 `<button class="btn btn-secondary" disabled>Max Attempts Reached</button>` :
-                `<button class="btn btn-primary btn-view-course" data-assignment="${assignment.id}">Go to Course</button>`
+                `<button class="btn btn-primary btn-view-course" data-course-id="${course.course_id}">Go to Course</button>`
             }
         `;
         UI.employee.coursesList.appendChild(card);
@@ -812,26 +829,21 @@ function renderMyCourses() {
 
     document.querySelectorAll('.btn-view-course').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const asmId = e.target.dataset.assignment;
-            openCourseViewer(asmId);
+            const courseId = e.target.dataset.courseId;
+            openCourseViewer(courseId);
         });
     });
 }
 
-function openCourseViewer(assignmentId) {
-    const assignment = state.assignments.find(a => a.id === assignmentId);
-    if (assignment.status === 'Not Started') {
-        assignment.status = 'In Progress'; // update status
-        renderMyCourses(); // refresh ui side
-    }
-    const course = state.courses.find(c => c.id === assignment.courseId);
+function openCourseViewer(courseId) {
+    const course = (state.courses || []).find(c => c.course_id === courseId);
+    if (!course) return;
 
     UI.employee.viewerTitle.textContent = course.title;
-    UI.employee.videoContainer.innerHTML = `<iframe src="${course.videoUrl}" frameborder="0" allowfullscreen></iframe>`;
+    UI.employee.videoContainer.innerHTML = `<iframe src="${course.video_url || course.videoUrl}" frameborder="0" allowfullscreen></iframe>`;
 
     // Prepare quiz state
     state.activeQuiz = {
-        assignment: assignment,
         course: course,
         currentQuestionIndex: 0,
         score: 0,
@@ -854,7 +866,7 @@ async function startQuiz() {
     btnNext.disabled = true;
 
     try {
-        const res = await apiCall(`/courses/${state.activeQuiz.course.id}/quiz`, 'GET');
+        const res = await apiCall(`/courses/${state.activeQuiz.course.course_id}/quiz`, 'GET');
         const questions = Array.isArray(res) ? res : (res.questions || []);
         
         state.activeQuiz.shuffledQuestions = questions.map(q => ({
@@ -922,7 +934,7 @@ async function handleNextQuestion() {
 
     const currentQ = state.activeQuiz.shuffledQuestions[state.activeQuiz.currentQuestionIndex];
     state.activeQuiz.userAnswers.push({
-        questionId: currentQ.id || currentQ.text,
+        question_id: currentQ.question_id || currentQ.id || currentQ.text,
         selected_answer: selected.value,
         answer: selected.value // Include both for compatibility
     });
@@ -945,20 +957,19 @@ async function finishQuiz() {
 
     let passed = false;
     let score = 0;
-    let attempts = (state.activeQuiz.assignment.attempts || 0) + 1;
+    let attempts = 0;
 
     try {
-        const res = await apiCall(`/courses/${state.activeQuiz.course.id}/quiz/submit`, 'POST', {
-            answers: state.activeQuiz.userAnswers
+        const res = await apiCall(`/courses/${state.activeQuiz.course.course_id}/quiz/submit`, 'POST', {
+            employee_id: state.currentUser.id,
+            answers: state.activeQuiz.userAnswers.map(a => ({
+                question_id: a.question_id,
+                answer: a.answer
+            }))
         });
         
-        passed = res.passed === true || (res.status && res.status.toLowerCase() === 'passed');
+        passed = res.status && res.status.toLowerCase() === 'passed';
         score = res.score || 0;
-        if (res.attempts !== undefined) attempts = res.attempts;
-        
-        state.activeQuiz.assignment.status = passed ? 'Passed' : (attempts >= 3 ? 'Failed' : 'In Progress');
-        state.activeQuiz.assignment.score = score;
-        state.activeQuiz.assignment.attempts = attempts;
         
     } catch(err) {
         showToast(`Failed to submit: ${err.message}`);
@@ -979,78 +990,39 @@ async function finishQuiz() {
     title.textContent = passed ? 'Congratulations! You Passed.' : 'You failed the quiz.';
     title.style.color = passed ? 'var(--status-green)' : 'var(--status-red)';
 
-    document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${score}%</strong> (Required: ${state.activeQuiz.course.passingScore}%)`;
-    document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${attempts} / 3`;
+    document.getElementById('quiz-result-score').innerHTML = `Score: <strong>${score}%</strong>`;
+    document.getElementById('quiz-result-attempts').innerHTML = `Attempts: ${attempts ? attempts : 'N/A'} / 3`;
 
     if (passed) {
         document.getElementById('btn-quiz-retake').classList.add('hidden');
-        generateCertificate(state.activeQuiz.course);
-        showToast("Passed! Certificate generated.");
+        showToast("Passed! Certificate is being generated.");
     } else {
-        if (attempts >= 3) {
-            document.getElementById('btn-quiz-retake').classList.add('hidden');
-            showToast("Max attempts reached.");
-        } else {
-            document.getElementById('btn-quiz-retake').classList.remove('hidden');
-        }
+        document.getElementById('btn-quiz-retake').classList.remove('hidden');
     }
 
-    renderMyCourses();
-}
-
-// Certificates
-function generateCertificate(course) {
-    const certId = 'CERT-' + Math.floor(100000 + Math.random() * 900000); // 6-digit
-    state.certificates.push({
-        id: certId,
-        userId: state.currentUser.id,
-        courseId: course.id,
-        date: new Date().toISOString().split('T')[0],
-        employeeName: state.currentUser.name,
-        courseTitle: course.title
-    });
-    renderCertificates();
+    await initEmployeeDashboard();
 }
 
 function renderCertificates() {
     UI.employee.certList.innerHTML = '';
-    const myCerts = state.certificates.filter(c => c.userId === state.currentUser.id);
-
-    if (myCerts.length === 0) {
+    const earned = (state.courses || []).filter(c => c.cert_id && c.s3_link);
+    if (earned.length === 0) {
         UI.employee.certList.innerHTML = '<p>No certificates earned yet.</p>';
         return;
     }
 
-    myCerts.forEach(cert => {
+    earned.forEach(course => {
         const card = document.createElement('div');
         card.className = 'cert-card';
         card.innerHTML = `
             <div class="cert-icon">🏆</div>
-            <h3>${cert.courseTitle}</h3>
-            <p>ID: <strong>${cert.id}</strong></p>
-            <p class="text-muted">${cert.date}</p>
-            <button class="btn btn-primary mt-2 btn-print-cert" data-certid="${cert.id}">View / Print</button>
+            <h3>${course.title}</h3>
+            <p>ID: <strong>${course.cert_id}</strong></p>
+            <p class="text-muted">${course.due_date || ''}</p>
+            <a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>
         `;
         UI.employee.certList.appendChild(card);
     });
-
-    document.querySelectorAll('.btn-print-cert').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            printCertificate(e.target.dataset.certid);
-        });
-    });
-}
-
-function printCertificate(certId) {
-    const cert = state.certificates.find(c => c.id === certId);
-    if (!cert) return;
-
-    document.getElementById('print-cert-name').textContent = cert.employeeName;
-    document.getElementById('print-cert-course').textContent = cert.courseTitle;
-    document.getElementById('print-cert-date').textContent = cert.date;
-    document.getElementById('print-cert-id').textContent = cert.id;
-
-    window.print();
 }
 
 function verifyCertificate(e) {
@@ -1062,16 +1034,24 @@ function verifyCertificate(e) {
     resultDiv.style.padding = '1rem';
     resultDiv.style.borderRadius = '0.375rem';
 
-    const cert = state.certificates.find(c => c.id === id);
-    if (cert) {
-        resultDiv.style.backgroundColor = 'var(--status-green-bg)';
-        resultDiv.style.color = 'var(--status-green)';
-        resultDiv.innerHTML = `<strong>Valid Certificate</strong><br>Issued to: ${cert.employeeName}<br>Course: ${cert.courseTitle}<br>Date: ${cert.date}`;
-    } else {
-        resultDiv.style.backgroundColor = 'var(--status-red-bg)';
-        resultDiv.style.color = 'var(--status-red)';
-        resultDiv.innerHTML = `<strong>Invalid Certificate</strong><br>No record found for ID: ${id}`;
-    }
+    apiCall(`/verify/${id}`, 'GET')
+        .then((res) => {
+            if (res?.valid) {
+                const d = res.certificate_details || {};
+                resultDiv.style.backgroundColor = 'var(--status-green-bg)';
+                resultDiv.style.color = 'var(--status-green)';
+                resultDiv.innerHTML = `<strong>Valid Certificate</strong><br>Issued to: ${d.issued_to}<br>Course: ${d.course_name}<br>Date: ${d.date_of_issue}`;
+            } else {
+                resultDiv.style.backgroundColor = 'var(--status-red-bg)';
+                resultDiv.style.color = 'var(--status-red)';
+                resultDiv.innerHTML = `<strong>Invalid Certificate</strong><br>${res?.message || `No record found for ID: ${id}`}`;
+            }
+        })
+        .catch((err) => {
+            resultDiv.style.backgroundColor = 'var(--status-red-bg)';
+            resultDiv.style.color = 'var(--status-red)';
+            resultDiv.innerHTML = `<strong>Verification failed</strong><br>${err.message}`;
+        });
 }
 
 // Bootstrap

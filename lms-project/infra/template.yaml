@@ -20,6 +20,9 @@ Resources:
     Properties:
       CodeUri: ../lambdas/course/
       Handler: index.handler
+      Environment:
+        Variables:
+          SES_SENDER: "saeetarde@gmail.com"
       Policies:
         - Statement:
             - Effect: Allow

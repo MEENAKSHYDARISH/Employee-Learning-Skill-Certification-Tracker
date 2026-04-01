@@ -12,6 +12,7 @@ import { randomUUID } from "crypto"; // ✅ Added
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 const sesClient = new SESClient({});
+const SES_SENDER = process.env.SES_SENDER;
 
 export const handler = async (event) => {
   const { httpMethod, resource, pathParameters } = event;
@@ -20,8 +21,21 @@ export const handler = async (event) => {
   try {
     // ROUTE 1: POST /courses (Create Course)
     if (httpMethod === "POST" && resource === "/courses") {
-      const { title, description, video_url, assigned_roles } = body; // ✅ Removed course_id from here
+      const {
+        title,
+        description,
+        video_url,
+        assigned_roles,
+        passingScore,
+        questions,
+      } = body;
       const course_id = randomUUID(); // ✅ Generate it here
+      const normalizedPassingScore =
+        typeof passingScore === "number"
+          ? passingScore
+          : passingScore
+            ? Number(passingScore)
+            : undefined;
 
       await docClient.send(
         new PutCommand({
@@ -31,6 +45,9 @@ export const handler = async (event) => {
             title,
             description,
             video_url,
+            passingScore: Number.isFinite(normalizedPassingScore)
+              ? normalizedPassingScore
+              : 70,
             assigned_roles: Array.isArray(assigned_roles)
               ? assigned_roles[0]
               : assigned_roles,
@@ -38,6 +55,35 @@ export const handler = async (event) => {
           },
         }),
       );
+
+      // Persist quiz questions into quiz_answers table for QuizFunction.
+      if (Array.isArray(questions) && questions.length > 0) {
+        const writeReqs = questions.map((q) => {
+          const question_id = randomUUID();
+          const options = Array.isArray(q?.options) ? q.options : [];
+          return {
+            PutRequest: {
+              Item: {
+                course_id,
+                question_id,
+                text: q?.text || "",
+                options,
+                correct_answer: q?.correct_answer || q?.correctAnswer || "",
+              },
+            },
+          };
+        });
+
+        for (let i = 0; i < writeReqs.length; i += 25) {
+          const chunk = writeReqs.slice(i, i + 25);
+          await docClient.send(
+            new BatchWriteCommand({
+              RequestItems: { quiz_answers: chunk },
+            }),
+          );
+        }
+      }
+
       return response(201, { message: "Course created successfully" });
     }
 
@@ -124,26 +170,31 @@ export const handler = async (event) => {
       );
 
       // 4. Send Emails via SES
-      const emailPromises = targetUsers.map((user) => {
-        return sesClient.send(
-          new SendEmailCommand({
-            Destination: { ToAddresses: [user.email] },
-            Message: {
-              Body: {
-                Text: {
-                  Data: `Hi ${user.name}, you have been assigned: ${course.title}. View here: ${course.video_url}`,
+      const sender = SES_SENDER || "no-reply@example.com";
+      const emailRequests = targetUsers
+        .filter((user) => typeof user?.email === "string" && user.email.trim())
+        .map((user) =>
+          sesClient.send(
+            new SendEmailCommand({
+              Destination: { ToAddresses: [user.email.trim()] },
+              Message: {
+                Body: {
+                  Text: {
+                    Data: `Hi ${user.name || "there"}, you have been assigned: ${course.title}. View here: ${course.video_url}`,
+                  },
                 },
+                Subject: { Data: "New Course Assignment" },
               },
-              Subject: { Data: "New Course Assignment" },
-            },
-            Source: "saeetarde@gmail.com",
-          }),
+              Source: sender,
+            }),
+          ),
         );
-      });
 
-      await Promise.all(emailPromises);
+      const emailResults = await Promise.allSettled(emailRequests);
+      const emailSent = emailResults.filter((r) => r.status === "fulfilled").length;
+      const emailFailed = emailResults.length - emailSent;
       return response(200, {
-        message: `Assigned to ${targetUsers.length} employees`,
+        message: `Assigned to ${targetUsers.length} employees. Emails sent: ${emailSent}, failed: ${emailFailed}`,
       });
     }
   } catch (error) {

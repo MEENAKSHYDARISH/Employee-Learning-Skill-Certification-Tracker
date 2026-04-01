@@ -77,7 +77,7 @@ export const handler = async (event) => {
       const status = finalScore >= 70 ? "passed" : "failed";
 
       // 4. Update Completions Table
-      await docClient.send(
+      const updateRes = await docClient.send(
         new UpdateCommand({
           TableName: "completions",
           Key: { employee_id, course_id: courseId },
@@ -89,6 +89,7 @@ export const handler = async (event) => {
             ":i": 1,
           },
           ExpressionAttributeNames: { "#stat": "status" },
+          ReturnValues: "UPDATED_NEW",
         }),
       );
 
@@ -109,6 +110,7 @@ export const handler = async (event) => {
       return response(200, {
         score: finalScore,
         status,
+        attempts: updateRes?.Attributes?.attempt_count,
         message:
           status === "passed"
             ? "Certificate is being generated!"
