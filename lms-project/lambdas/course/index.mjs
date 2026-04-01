@@ -123,40 +123,60 @@ export const handler = async (event) => {
       const allUsers = usersData.Items || [];
       const employees = allUsers.filter((u) => u?.role === "employee");
 
+      const getEmployeeId = (user) => user?.employee_id || user?.id || user?.userId;
       let targetUsers = [];
       if (typeof target === "string" && target.startsWith("user:")) {
         const employeeId = target.slice("user:".length);
-        targetUsers = employees.filter((u) => u?.employee_id === employeeId);
+        targetUsers = employees.filter(
+          (u) => getEmployeeId(u) === employeeId,
+        );
       } else if (typeof target === "string" && target.startsWith("role:")) {
         const roleName = target.slice("role:".length);
         if (roleName === "All") {
           targetUsers = employees;
         } else {
-          // Match against department first (UI uses Engineering/Marketing),
-          // then fall back to matching the user's role string.
+          // Match against department, the user's role string, or display label.
           targetUsers = employees.filter(
-            (u) => u?.department === roleName || u?.role === roleName,
+            (u) =>
+              u?.department === roleName ||
+              u?.role === roleName ||
+              u?.asDept === roleName ||
+              getEmployeeId(u) === roleName,
           );
         }
       } else if (course.assigned_roles) {
         // Backward-compatible fallback: assign based on the course's assigned role
-        targetUsers = employees.filter((u) => course.assigned_roles === u.role);
+        targetUsers = employees.filter(
+          (u) => course.assigned_roles === u.role,
+        );
       } else {
         return response(400, { error: "Missing assignment target" });
       }
 
-      // 3. Batch Write to completions table & Send SES Emails
-      const completionItems = targetUsers.map((user) => ({
-        PutRequest: {
-          Item: {
-            employee_id: user.employee_id,
-            course_id: courseId,
-            status: "not_started",
-            attempt_count: 0,
-            due_date: due_date || "None",
-          },
-        },
-      }));
+      const completionItems = targetUsers
+        .map((user) => {
+          const employeeId = getEmployeeId(user);
+          if (!employeeId) return null;
+          return {
+            PutRequest: {
+              Item: {
+                employee_id: employeeId,
+                course_id: courseId,
+                status: "not_started",
+                attempt_count: 0,
+                due_date: due_date || "None",
+              },
+            },
+          };
+        })
+        .filter(Boolean);
+
+      if (completionItems.length === 0) {
+        return response(400, {
+          error: "No valid employee targets found for this assignment",
+          assigned: targetUsers.length,
+        });
+      }
 
       if (completionItems.length === 0) {
         return response(200, { message: "Assigned to 0 employees" });
@@ -170,7 +190,7 @@ export const handler = async (event) => {
       );
 
       // 4. Send Emails via SES
-      const sender = SES_SENDER || "saeetarde@gmail.com";
+      const sender = SES_SENDER || "no-reply@example.com";
       const emailRequests = targetUsers
         .filter((user) => typeof user?.email === "string" && user.email.trim())
         .map((user) =>

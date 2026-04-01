@@ -260,17 +260,21 @@ function setupUserState(authUser, profile, role) {
     if (!user) {
         user = {
             id: authUser.userId,
+            employee_id: profile?.employee_id || authUser.userId,
             name: profile?.name || authUser.username || 'User',
             email: authUser.username,
             role: role,
-            asDept: profile?.department || 'Engineering'
+            department: profile?.department || profile?.asDept || 'Engineering',
+            asDept: profile?.department || profile?.asDept || 'Engineering'
         };
         state.users.push(user);
     } else {
         user.role = role;
+        user.employee_id = profile?.employee_id || user.employee_id || authUser.userId;
+        user.department = profile?.department || user.department || user.asDept;
         if (profile) {
             user.name = profile.name || user.name;
-            user.asDept = profile.department || user.asDept;
+            user.asDept = profile.department || profile.asDept || user.asDept;
         }
     }
     state.currentUser = user;
@@ -389,9 +393,11 @@ async function handleLogin(e) {
         if (!user) {
             user = {
                 id: result.userId,
+                employee_id: profile?.employee_id || result.userId,
                 name: profile?.name || email.split('@')[0],
                 email: email,
                 role: result.role,
+                department: profile?.department || profile?.asDept || 'Engineering',
                 asDept: profile?.department || profile?.asDept || 'Engineering',
                 manager: profile?.manager || 'N/A',
                 joiningDate: profile?.joiningDate || 'N/A',
@@ -400,6 +406,8 @@ async function handleLogin(e) {
             state.users.push(user);
         } else {
             user.role = result.role; // sync role with Cognito
+            user.employee_id = profile?.employee_id || user.employee_id || result.userId;
+            user.department = profile?.department || user.department || user.asDept;
             if (profile) {
                 user.name = profile.name || user.name;
                 user.asDept = profile.department || profile.asDept || user.asDept;
@@ -528,8 +536,9 @@ function populateAssignmentDropdowns() {
     const empGroup = document.createElement('optgroup');
     empGroup.label = "Specific Employees";
     state.users.filter(u => u.role === 'employee').forEach(u => {
+        const employeeId = u.employee_id || u.id;
         const opt = document.createElement('option');
-        opt.value = `user:${u.id}`;
+        opt.value = `user:${employeeId}`;
         opt.textContent = `${u.name} (${u.asDept})`;
         empGroup.appendChild(opt);
     });
@@ -553,8 +562,8 @@ async function handleAssignCourse(e) {
     btn.textContent = 'Assigning...';
 
     try {
-        await apiCall(`/courses/${courseId}/assign`, 'POST', { target: target, due_date: dueDate });
-        showToast(`Course assigned successfully.`);
+        const res = await apiCall(`/courses/${courseId}/assign`, 'POST', { target: target, due_date: dueDate });
+        showToast(res?.message || `Course assigned successfully.`);
         e.target.reset();
         await initAdminDashboard(); // Refresh matrix
     } catch(err) {
