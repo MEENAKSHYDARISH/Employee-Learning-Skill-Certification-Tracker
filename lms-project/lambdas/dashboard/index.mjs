@@ -24,18 +24,9 @@ export const handler = async (event) => {
     }
 
     const userRole = userRes.Item.role;
+    const userDepartment = userRes.Item.department;
 
-    // 2. Fetch all Courses and filter by Role
-    // (Note: In a huge company, you'd use a Query on a GSI, but Scan is fine for now)
-    const coursesRes = await ddb.send(
-      new ScanCommand({ TableName: "courses" }),
-    );
-    const myCourses = coursesRes.Items.filter(
-      (course) =>
-        course.assigned_roles && course.assigned_roles.includes(userRole),
-    );
-
-    // 3. Fetch all Completions for this specific user
+    // 2. Fetch all Completions for this specific user
     const completionsRes = await ddb.send(
       new ScanCommand({
         TableName: "completions",
@@ -43,6 +34,26 @@ export const handler = async (event) => {
         ExpressionAttributeValues: { ":eid": employeeId },
       }),
     );
+
+    // 3. Fetch all Courses and include:
+    // - Explicitly assigned via completions table (source of truth)
+    // - Role/department matches as fallback
+    const coursesRes = await ddb.send(
+      new ScanCommand({ TableName: "courses" }),
+    );
+    const completionCourseIds = new Set(
+      (completionsRes.Items || []).map((c) => c.course_id),
+    );
+    const myCourses = (coursesRes.Items || []).filter((course) => {
+      const assignedRole = course?.assigned_roles;
+      const roleMatched =
+        typeof assignedRole === "string" &&
+        (assignedRole === "All" ||
+          assignedRole === userRole ||
+          assignedRole === userDepartment);
+
+      return completionCourseIds.has(course.course_id) || roleMatched;
+    });
 
     // 4. Fetch all Certificates for this specific user
     const certsRes = await ddb.send(
