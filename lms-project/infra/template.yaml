@@ -10,8 +10,8 @@ Globals:
   Api:
     Cors:
       AllowOrigin: "'*'"
-      AllowMethods: "'*'"
-      AllowHeaders: "'*' "
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
 
 Resources:
   ### 1. Course & User Management Function ###

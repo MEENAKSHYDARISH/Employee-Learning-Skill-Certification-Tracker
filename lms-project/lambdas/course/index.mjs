@@ -121,9 +121,26 @@ export const handler = async (event) => {
         new ScanCommand({ TableName: "users" }),
       );
       const allUsers = usersData.Items || [];
-      const employees = allUsers.filter((u) => u?.role === "employee");
 
+      const normalize = (value) =>
+        typeof value === "string" ? value.trim().toLowerCase() : "";
       const getEmployeeId = (user) => user?.employee_id || user?.id || user?.userId;
+      const getEmailAddress = (user) => {
+        const emailCandidate =
+          user?.email ||
+          user?.Email ||
+          user?.emailAddress ||
+          user?.username ||
+          user?.userName;
+        return typeof emailCandidate === "string" && emailCandidate.trim()
+          ? emailCandidate.trim()
+          : null;
+      };
+
+      const employees = allUsers.filter(
+        (u) => normalize(u?.role) === "employee",
+      );
+
       let targetUsers = [];
       if (typeof target === "string" && target.startsWith("user:")) {
         const employeeId = target.slice("user:".length);
@@ -135,19 +152,20 @@ export const handler = async (event) => {
         if (roleName === "All") {
           targetUsers = employees;
         } else {
-          // Match against department, the user's role string, or display label.
+          const normalizedTarget = normalize(roleName);
           targetUsers = employees.filter(
             (u) =>
-              u?.department === roleName ||
-              u?.role === roleName ||
-              u?.asDept === roleName ||
-              getEmployeeId(u) === roleName,
+              normalize(u?.department) === normalizedTarget ||
+              normalize(u?.role) === normalizedTarget ||
+              normalize(u?.asDept) === normalizedTarget ||
+              normalize(getEmployeeId(u)) === normalizedTarget,
           );
         }
       } else if (course.assigned_roles) {
         // Backward-compatible fallback: assign based on the course's assigned role
+        const normalizedAssignedRole = normalize(course.assigned_roles);
         targetUsers = employees.filter(
-          (u) => course.assigned_roles === u.role,
+          (u) => normalize(u?.role) === normalizedAssignedRole || normalize(u?.department) === normalizedAssignedRole,
         );
       } else {
         return response(400, { error: "Missing assignment target" });
@@ -178,10 +196,6 @@ export const handler = async (event) => {
         });
       }
 
-      if (completionItems.length === 0) {
-        return response(200, { message: "Assigned to 0 employees" });
-      }
-
       // Chunk batch writes (DynamoDB limit is 25 items per batch)
       await docClient.send(
         new BatchWriteCommand({
@@ -197,9 +211,12 @@ export const handler = async (event) => {
 
       const sender = SES_SENDER;
       const emailRequests = targetUsers
-        .filter((user) => typeof user?.email === "string" && user.email.trim())
-        .map((user) => ({ user, payload: new SendEmailCommand({
-            Destination: { ToAddresses: [user.email.trim()] },
+        .map((user) => ({ user, email: getEmailAddress(user) }))
+        .filter(({ email }) => email)
+        .map(({ user, email }) => ({
+          user,
+          payload: new SendEmailCommand({
+            Destination: { ToAddresses: [email] },
             Message: {
               Body: {
                 Text: {
@@ -209,12 +226,21 @@ export const handler = async (event) => {
               Subject: { Data: "New Course Assignment" },
             },
             Source: sender,
-          }) }));
+          }),
+        }));
+
+      if (emailRequests.length === 0) {
+        return response(200, {
+          message: `Assigned to ${targetUsers.length} employees. No valid recipient emails found for sending notifications.`,
+          assigned: targetUsers.length,
+          emailSent: 0,
+          emailFailed: 0,
+          emailFailures: [],
+        });
+      }
 
       const emailResults = await Promise.allSettled(
-        emailRequests.map(({ user, payload }) =>
-          sesClient.send(payload).then((res) => ({ user, res })),
-        ),
+        emailRequests.map(({ payload }) => sesClient.send(payload)),
       );
 
       let emailSent = 0;
@@ -255,6 +281,7 @@ const response = (statusCode, body) => ({
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
   },
   body: JSON.stringify(body),
 });
