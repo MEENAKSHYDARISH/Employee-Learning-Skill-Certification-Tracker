@@ -527,7 +527,7 @@ function populateAssignmentDropdowns() {
     UI.admin.assignCourseSelect.innerHTML = '<option value="">-- Select Course --</option>';
     state.courses.forEach(c => {
         const opt = document.createElement('option');
-        opt.value = c.id;
+        opt.value = c.course_id || c.id;
         opt.textContent = c.title;
         UI.admin.assignCourseSelect.appendChild(opt);
     });

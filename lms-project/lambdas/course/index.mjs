@@ -52,6 +52,11 @@ export const handler = async (event) => {
     // ROUTE 3: POST /courses/{id}/assign (Assign to Employees)
     if (httpMethod === "POST" && resource === "/courses/{id}/assign") {
       const courseId = pathParameters.id;
+      const { target, due_date } = body || {};
+
+      if (!courseId) {
+        return response(400, { error: "Missing course id" });
+      }
 
       // 1. Get Course details
       const courseData = await docClient.send(
@@ -61,14 +66,38 @@ export const handler = async (event) => {
         }),
       );
       const course = courseData.Item;
+      if (!course) {
+        return response(404, { error: "Course not found" });
+      }
 
       // 2. Find matching users (Scan users table by role)
       const usersData = await docClient.send(
         new ScanCommand({ TableName: "users" }),
       );
-      const targetUsers = usersData.Items.filter(
-        (user) => course.assigned_roles === user.role,
-      );
+      const allUsers = usersData.Items || [];
+      const employees = allUsers.filter((u) => u?.role === "employee");
+
+      let targetUsers = [];
+      if (typeof target === "string" && target.startsWith("user:")) {
+        const employeeId = target.slice("user:".length);
+        targetUsers = employees.filter((u) => u?.employee_id === employeeId);
+      } else if (typeof target === "string" && target.startsWith("role:")) {
+        const roleName = target.slice("role:".length);
+        if (roleName === "All") {
+          targetUsers = employees;
+        } else {
+          // Match against department first (UI uses Engineering/Marketing),
+          // then fall back to matching the user's role string.
+          targetUsers = employees.filter(
+            (u) => u?.department === roleName || u?.role === roleName,
+          );
+        }
+      } else if (course.assigned_roles) {
+        // Backward-compatible fallback: assign based on the course's assigned role
+        targetUsers = employees.filter((u) => course.assigned_roles === u.role);
+      } else {
+        return response(400, { error: "Missing assignment target" });
+      }
 
       // 3. Batch Write to completions table & Send SES Emails
       const completionItems = targetUsers.map((user) => ({
@@ -78,10 +107,14 @@ export const handler = async (event) => {
             course_id: courseId,
             status: "not_started",
             attempt_count: 0,
-            due_date: body.due_date || "None",
+            due_date: due_date || "None",
           },
         },
       }));
+
+      if (completionItems.length === 0) {
+        return response(200, { message: "Assigned to 0 employees" });
+      }
 
       // Chunk batch writes (DynamoDB limit is 25 items per batch)
       await docClient.send(
