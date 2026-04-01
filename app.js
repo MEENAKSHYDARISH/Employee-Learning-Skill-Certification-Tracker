@@ -509,10 +509,10 @@ function renderCourseTable() {
         tr.innerHTML = `
             <td><strong>${course.title}</strong></td>
             <td>${course.description}</td>
-            <td><a href="${course.videoUrl}" target="_blank">Link</a></td>
+            <td><a href="${course.video_url || course.videoUrl}" target="_blank">Link</a></td>
             <td>${course.passingScore}%</td>
-            <td>${course.roles.join(', ')}</td>
-            <td><span class="badge status-blue">${course.questions.length} Qs</span></td>
+            <td>${course.assigned_roles || course.roles || 'All'}</td>
+            <td><span class="badge status-blue">${course.questions ? course.questions.length : '?'} Qs</span></td>
         `;
         UI.admin.courseTable.appendChild(tr);
     });
