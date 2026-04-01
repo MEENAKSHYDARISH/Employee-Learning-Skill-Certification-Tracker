@@ -32,6 +32,15 @@ jobs:
             --exclude "README.md" \
             --exclude ".gitignore" \
             --exclude "lms-project/*"
+            
+      - name: Sync Backend to Backend S3 Bucket (Optional)
+        # Only runs if you add a BACKEND_BUCKET_NAME secret to GitHub
+        if: ${{ env.BACKEND_BUCKET != '' }}
+        env:
+          BACKEND_BUCKET: ${{ secrets.BACKEND_BUCKET_NAME }}
+        run: |
+          aws s3 sync lms-project/ s3://${{ env.BACKEND_BUCKET }} \
+            --delete
 
       # Optional: Invalidate CloudFront (Uncomment if you use CloudFront)
       # - name: Invalidate CloudFront Cache
