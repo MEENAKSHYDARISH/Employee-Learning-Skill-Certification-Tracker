@@ -7,7 +7,7 @@ import {
   BatchWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
-import { randomUUID } from "crypto"; // ✅ Added
+import { randomUUID, createHash } from "crypto"; // ✅ Added createHash
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -29,7 +29,7 @@ export const handler = async (event) => {
         passingScore,
         questions,
       } = body;
-      const course_id = randomUUID(); // ✅ Generate it here
+      const course_id = randomUUID();
       const normalizedPassingScore =
         typeof passingScore === "number"
           ? passingScore
@@ -41,11 +41,15 @@ export const handler = async (event) => {
         new PutCommand({
           TableName: "courses",
           Item: {
-            course_id, // ✅ Always present now
+            course_id,
             title,
             description,
             video_url,
             passingScore: Number.isFinite(normalizedPassingScore)
+              ? normalizedPassingScore
+              : 70,
+            // ✅ Store passing_score as well for QuizFunction compatibility
+            passing_score: Number.isFinite(normalizedPassingScore)
               ? normalizedPassingScore
               : 70,
             assigned_roles: Array.isArray(assigned_roles)
@@ -56,11 +60,18 @@ export const handler = async (event) => {
         }),
       );
 
-      // Persist quiz questions into quiz_answers table for QuizFunction.
+      // Persist quiz questions into quiz_answers table
       if (Array.isArray(questions) && questions.length > 0) {
         const writeReqs = questions.map((q) => {
           const question_id = randomUUID();
           const options = Array.isArray(q?.options) ? q.options : [];
+          const correct_answer = q?.correct_answer || q?.correctAnswer || "";
+
+          // ✅ Hash the correct answer so QuizFunction can grade securely
+          const correct_answer_hash = createHash("sha256")
+            .update(correct_answer)
+            .digest("hex");
+
           return {
             PutRequest: {
               Item: {
@@ -68,7 +79,8 @@ export const handler = async (event) => {
                 question_id,
                 text: q?.text || "",
                 options,
-                correct_answer: q?.correct_answer || q?.correctAnswer || "",
+                correct_answer,       // plain text for reference
+                correct_answer_hash,  // ✅ hash for secure grading
               },
             },
           };
@@ -104,7 +116,6 @@ export const handler = async (event) => {
         return response(400, { error: "Missing course id" });
       }
 
-      // 1. Get Course details
       const courseData = await docClient.send(
         new GetCommand({
           TableName: "courses",
@@ -116,7 +127,6 @@ export const handler = async (event) => {
         return response(404, { error: "Course not found" });
       }
 
-      // 2. Find matching users (Scan users table by role)
       const usersData = await docClient.send(
         new ScanCommand({ TableName: "users" }),
       );
@@ -157,15 +167,15 @@ export const handler = async (event) => {
             (u) =>
               normalize(u?.department) === normalizedTarget ||
               normalize(u?.role) === normalizedTarget ||
-              normalize(u?.asDept) === normalizedTarget ||
-              normalize(getEmployeeId(u)) === normalizedTarget,
+              normalize(u?.asDept) === normalizedTarget,
           );
         }
       } else if (course.assigned_roles) {
-        // Backward-compatible fallback: assign based on the course's assigned role
         const normalizedAssignedRole = normalize(course.assigned_roles);
         targetUsers = employees.filter(
-          (u) => normalize(u?.role) === normalizedAssignedRole || normalize(u?.department) === normalizedAssignedRole,
+          (u) =>
+            normalize(u?.role) === normalizedAssignedRole ||
+            normalize(u?.department) === normalizedAssignedRole,
         );
       } else {
         return response(400, { error: "Missing assignment target" });
@@ -196,14 +206,15 @@ export const handler = async (event) => {
         });
       }
 
-      // Chunk batch writes (DynamoDB limit is 25 items per batch)
-      await docClient.send(
-        new BatchWriteCommand({
-          RequestItems: { completions: completionItems },
-        }),
-      );
+      for (let i = 0; i < completionItems.length; i += 25) {
+        const chunk = completionItems.slice(i, i + 25);
+        await docClient.send(
+          new BatchWriteCommand({
+            RequestItems: { completions: chunk },
+          }),
+        );
+      }
 
-      // 4. Send Emails via SES
       if (!SES_SENDER) {
         console.error("SES_SENDER env variable is not configured.");
         return response(500, { error: "SES sender address is not configured" });
@@ -231,7 +242,7 @@ export const handler = async (event) => {
 
       if (emailRequests.length === 0) {
         return response(200, {
-          message: `Assigned to ${targetUsers.length} employees. No valid recipient emails found for sending notifications.`,
+          message: `Assigned to ${targetUsers.length} employees. No valid recipient emails found.`,
           assigned: targetUsers.length,
           emailSent: 0,
           emailFailed: 0,
@@ -254,21 +265,17 @@ export const handler = async (event) => {
             user: failedUser?.email || "unknown",
             error: result.reason?.message || String(result.reason),
           });
-          console.error(
-            "SES send failed for",
-            failedUser?.email,
-            result.reason,
-          );
+          console.error("SES send failed for", failedUser?.email, result.reason);
         }
       });
 
       const emailFailed = emailRequests.length - emailSent;
-      const responsePayload = {
+      return response(200, {
         message: `Assigned to ${targetUsers.length} employees. Emails sent: ${emailSent}, failed: ${emailFailed}`,
         emailFailures,
-      };
-      return response(200, responsePayload);
+      });
     }
+
   } catch (error) {
     console.error(error);
     return response(500, { error: error.message });
