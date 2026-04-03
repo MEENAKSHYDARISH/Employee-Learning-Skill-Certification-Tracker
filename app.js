@@ -788,8 +788,40 @@ function renderSkillGapDashboard() {
 // ✅ Replace the entire conflicted block with this
 async function initEmployeeDashboard() {
   try {
-    const employeeId = state.currentUser.employee_id || state.currentUser.id;
-    const dash = await apiCall(`/employees/${employeeId}/dashboard`, "GET");
+    const candidateIds = new Set();
+    if (state.currentUser?.employee_id) candidateIds.add(state.currentUser.employee_id);
+    if (state.currentUser?.id) candidateIds.add(state.currentUser.id);
+    if (state.currentUser?.userId) candidateIds.add(state.currentUser.userId);
+    state.users.forEach((u) => {
+      if (u.employee_id) candidateIds.add(u.employee_id);
+      if (u.id) candidateIds.add(u.id);
+    });
+
+    if (candidateIds.size === 0) {
+      throw new Error("No employee id available for dashboard lookup");
+    }
+
+    let dash = null;
+    let triedIds = [];
+    for (const candidate of candidateIds) {
+      triedIds.push(candidate);
+      try {
+        dash = await apiCall(`/employees/${candidate}/dashboard`, "GET");
+        if (dash) {
+          break;
+        }
+      } catch (e) {
+        if (e.message && e.message.includes("API error 404")) {
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    if (!dash) {
+      throw new Error(`No dashboard found for any of tried IDs: ${triedIds.join(", ")}`);
+    }
+
     state.employeeDashboard = dash;
     state.courses = Array.isArray(dash?.courses) ? dash.courses : [];
 
