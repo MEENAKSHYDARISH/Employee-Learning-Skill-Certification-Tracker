@@ -1119,7 +1119,6 @@ function openCourseViewer(courseId) {
   const allVideoUrls = getCourseVideoUrls(course);
 
   if (allVideoUrls.length > 0) {
-    // Create container for multiple videos
     let videoHTML = '';
 
     if (allVideoUrls.length === 1) {
@@ -1130,6 +1129,7 @@ function openCourseViewer(courseId) {
       } else {
         videoHTML = `<p>This video cannot be embedded. <a href="${allVideoUrls[0]}" target="_blank" rel="noopener">Open in new tab</a></p>`;
       }
+      UI.employee.videoContainer.classList.remove('video-container-playlist');
     } else {
       // Multiple videos - create a playlist-style layout
       videoHTML = '<div class="video-playlist">';
@@ -1152,11 +1152,13 @@ function openCourseViewer(courseId) {
         }
       });
       videoHTML += '</div>';
+      UI.employee.videoContainer.classList.add('video-container-playlist');
     }
 
     UI.employee.videoContainer.innerHTML = videoHTML;
   } else {
     UI.employee.videoContainer.innerHTML = `<p>No video URLs provided for this course.</p>`;
+    UI.employee.videoContainer.classList.remove('video-container-playlist');
   }
 
   state.activeQuiz = {
