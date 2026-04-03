@@ -7,14 +7,18 @@ Globals:
     Timeout: 30
     MemorySize: 128
     Runtime: nodejs20.x
-  Api:
-    StageName: backend
-    Cors:
-      AllowOrigin: "*"
-      AllowMethods: "GET,POST,OPTIONS"
-      AllowHeaders: "Content-Type,Authorization"
 
 Resources:
+  ### Explicit API Definition to handle StageName and Global CORS ###
+  LmsApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: backend
+      Cors:
+        AllowOrigin: "'*'"
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+
   ### 1. Course & User Management Function ###
   CourseFunction:
     Type: AWS::Serverless::Function
@@ -50,16 +54,19 @@ Resources:
           Properties:
             Path: /courses
             Method: post
+            RestApiId: !Ref LmsApi
         ListCourses:
           Type: Api
           Properties:
             Path: /courses
             Method: get
+            RestApiId: !Ref LmsApi
         AssignCourse:
           Type: Api
           Properties:
             Path: /courses/{id}/assign
             Method: post
+            RestApiId: !Ref LmsApi
 
   ### 2. Quiz & Grading Function ###
   QuizFunction:
@@ -90,19 +97,13 @@ Resources:
           Properties:
             Path: /courses/{id}/quiz
             Method: get
-            Cors:
-              AllowOrigin: "*"
-              AllowMethods: "GET,POST,OPTIONS"
-              AllowHeaders: "Content-Type,Authorization"
+            RestApiId: !Ref LmsApi
         SubmitQuiz:
           Type: Api
           Properties:
             Path: /courses/{id}/quiz/submit
             Method: post
-            Cors:
-              AllowOrigin: "*"
-              AllowMethods: "GET,POST,OPTIONS"
-              AllowHeaders: "Content-Type,Authorization"
+            RestApiId: !Ref LmsApi
 
   ### 3. Certificate Generation Function ###
   CertificateFunction:
@@ -113,12 +114,12 @@ Resources:
       Environment:
         Variables:
           CERT_BUCKET: !Ref CertificatesBucket
-          SES_SENDER: "saeetarde@gmail.com" # Change this to your SES verified email
+          SES_SENDER: "saeetarde@gmail.com"
       Policies:
         - S3WritePolicy:
             BucketName: !Ref CertificatesBucket
         - SESCrudPolicy:
-            IdentityName: "*" # Or your specific domain/email
+            IdentityName: "*"
         - DynamoDBCrudPolicy:
             TableName: certificates
         - DynamoDBReadPolicy:
@@ -161,6 +162,7 @@ Resources:
           Properties:
             Path: /verify/{id}
             Method: get
+            RestApiId: !Ref LmsApi
 
   NotifyFunction:
     Type: AWS::Serverless::Function
@@ -174,13 +176,13 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: completions
         - SNSPublishMessagePolicy:
-            TopicName: "LMS-Overdue-Alerts" # Must match the end of your ARN
+            TopicName: "LMS-Overdue-Alerts"
       Events:
         DailyCheck:
           Type: Schedule
           Properties:
-            Schedule: "rate(1 day)" # Runs every 24 hours
-            # Or use cron for specific time: "cron(0 9 * * ? *)" for 9 AM UTC
+            Schedule: "rate(1 day)"
+
   DashboardFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -200,8 +202,9 @@ Resources:
           Properties:
             Path: /employees/{id}/dashboard
             Method: get
+            RestApiId: !Ref LmsApi
 
 Outputs:
   CourseApi:
     Description: "API Gateway endpoint URL for backend stage"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/backend/"
+    Value: !Sub "https://${LmsApi}.execute-api.${AWS::Region}.amazonaws.com/backend/"

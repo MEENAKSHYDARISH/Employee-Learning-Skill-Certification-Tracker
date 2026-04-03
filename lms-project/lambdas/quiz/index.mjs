@@ -5,12 +5,11 @@ import {
   GetCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda"; // Added for Step 6
-import crypto from "crypto";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
-const lambdaClient = new LambdaClient({}); // Added for Step 6
+const lambdaClient = new LambdaClient({});
 
 export const handler = async (event) => {
   const { httpMethod, pathParameters } = event;
@@ -19,20 +18,17 @@ export const handler = async (event) => {
   let body = {};
   if (event.body) {
     try {
-      body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+      body =
+        typeof event.body === "string" ? JSON.parse(event.body) : event.body;
     } catch (err) {
-      console.error('Failed to parse event.body:', err, event.body);
-      return response(400, { error: 'Invalid JSON body' });
+      return response(400, { error: "Invalid JSON body" });
     }
   }
 
   try {
-    // OPTIONS preflight support
-    if (httpMethod === "OPTIONS") {
-      return response(204, {});
-    }
+    if (httpMethod === "OPTIONS") return response(204, {});
 
-    // ROUTE 1: GET /courses/{id}/quiz (Fetch Questions)
+    // ROUTE 1: GET Quiz Questions (Hide correct answers)
     if (httpMethod === "GET") {
       const data = await docClient.send(
         new QueryCommand({
@@ -42,16 +38,29 @@ export const handler = async (event) => {
         }),
       );
       const safeQuestions = data.Items.map(
-        ({ correct_answer, ...rest }) => rest,
+        ({ correct_answer, correct_answer_hash, ...rest }) => rest,
       );
       return response(200, safeQuestions);
     }
 
-    // ROUTE 2: POST /courses/{id}/quiz/submit (Grade Quiz)
+    // ROUTE 2: POST Submit Quiz
     if (httpMethod === "POST") {
       const { employee_id, answers } = body;
 
-      // 1. Check attempts
+      if (!employee_id || !answers) {
+        return response(400, { error: "Missing employee_id or answers" });
+      }
+
+      // 1. Get Course Info (To get dynamic passingScore)
+      const courseData = await docClient.send(
+        new GetCommand({
+          TableName: "courses",
+          Key: { course_id: courseId },
+        }),
+      );
+      const passingThreshold = courseData.Item?.passingScore || 70; // Default to 70 if not found
+
+      // 2. Check Attempts from completions table
       const completion = await docClient.send(
         new GetCommand({
           TableName: "completions",
@@ -60,11 +69,11 @@ export const handler = async (event) => {
       );
 
       if (completion.Item?.attempt_count >= 3) {
-        return response(403, { error: "Maximum attempts reached" });
+        return response(403, { error: "Maximum attempts reached (3/3)" });
       }
 
-      // 2. Fetch Answers
-      const data = await docClient.send(
+      // 3. Fetch Correct Answers
+      const quizData = await docClient.send(
         new QueryCommand({
           TableName: "quiz_answers",
           KeyConditionExpression: "course_id = :cid",
@@ -72,66 +81,68 @@ export const handler = async (event) => {
         }),
       );
 
-      // 3. Grading Logic
-      let score = 0;
-      data.Items.forEach((q) => {
+      // 4. Grading Logic (Compare submitted to DB)
+      let correctCount = 0;
+      const totalQuestions = quizData.Items.length;
+
+      quizData.Items.forEach((q) => {
         const submitted = answers.find((a) => a.question_id === q.question_id);
         if (submitted) {
-          const nukeWhitespace = (str) => str.toString().replace(/\s+/g, "");
-          const cleanInput = nukeWhitespace(submitted.answer);
-
-          // Using Direct Match for the demo as discussed
-          if (cleanInput.toLowerCase() === "noservermanagement") {
-            score++;
+          // Normalize both strings: remove spaces and lowercase
+          const clean = (str) =>
+            str.toString().replace(/\s+/g, "").toLowerCase();
+          if (clean(submitted.answer) === clean(q.correct_answer)) {
+            correctCount++;
           }
         }
       });
 
-      const finalScore = (score / data.Items.length) * 100;
-      const status = finalScore >= 70 ? "passed" : "failed";
+      const finalScore =
+        totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0;
+      const status = finalScore >= passingThreshold ? "passed" : "failed";
 
-      // 4. Update Completions Table
+      // 5. Update Completions Table
       const updateRes = await docClient.send(
         new UpdateCommand({
           TableName: "completions",
           Key: { employee_id, course_id: courseId },
           UpdateExpression:
-            "SET score = :s, #stat = :t, attempt_count = attempt_count + :i",
+            "SET score = :s, #stat = :t, attempt_count = if_not_exists(attempt_count, :zero) + :i",
           ExpressionAttributeValues: {
-            ":s": finalScore,
+            ":s": Math.round(finalScore),
             ":t": status,
             ":i": 1,
+            ":zero": 0,
           },
           ExpressionAttributeNames: { "#stat": "status" },
           ReturnValues: "UPDATED_NEW",
         }),
       );
 
-      // 5. TRIGGER CERTIFICATE (If Passed)
+      // 6. Trigger Certificate if passed
       if (status === "passed") {
         await lambdaClient.send(
           new InvokeCommand({
             FunctionName: process.env.CERTIFICATE_FUNCTION_NAME,
-            InvocationType: "Event", // Runs in background so user doesn't wait
-            Payload: JSON.stringify({
-              employee_id: employee_id,
-              course_id: courseId, // <-- MAKE SURE THIS MATCHES YOUR VARIABLE NAME
-            }),
+            InvocationType: "Event",
+            Payload: JSON.stringify({ employee_id, course_id: courseId }),
           }),
         );
       }
 
       return response(200, {
-        score: finalScore,
+        score: Math.round(finalScore),
         status,
+        passingScore: passingThreshold,
         attempts: updateRes?.Attributes?.attempt_count,
         message:
           status === "passed"
-            ? "Certificate is being generated!"
-            : "Try again!",
+            ? "Passed! Certificate is being generated."
+            : "Did not pass. Try again!",
       });
     }
   } catch (err) {
+    console.error(err);
     return response(500, { error: err.message });
   }
 };
