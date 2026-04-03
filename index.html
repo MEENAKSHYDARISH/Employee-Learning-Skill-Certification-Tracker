@@ -1,235 +1,266 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Enterprise LMS</title>
-    <link rel="stylesheet" href="styles.css">
-</head>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
 
-<body>
+  <body>
     <div id="app">
-        <!-- Toast Notification -->
-        <div id="toast" class="toast hidden"></div>
+      <div id="toast" class="toast hidden"></div>
 
-        <!-- Login View -->
-        <div id="login-view" class="view">
-            <div class="login-card">
-                <h1>Enterprise LMS</h1>
-                <p>Please log in to continue</p>
-                <form id="login-form">
-                    <div class="input-group">
-                        <label for="email">Email</label>
-                        <input type="email" id="email" required placeholder="admin@company.com or employee@company.com">
-                    </div>
-                    <!-- Password mocked -->
-                    <div class="input-group">
-                        <label for="password">Password</label>
-                        <input type="password" id="password" required value="password123">
-                    </div>
-                    <div id="error-message" style="color: var(--status-red); margin-bottom: 1rem; font-size: 0.875rem;">
-                    </div>
-                    <button type="submit" id="login-btn" class="btn btn-primary">Sign in</button>
-                    <div class="demo-hints">
-                        <p>Demo Admin: admin@company.com</p>
-                        <p>Demo Employee: employee@company.com</p>
-                    </div>
-                </form>
+      <div id="login-view" class="view">
+        <div class="login-card">
+          <h1>Enterprise LMS</h1>
+          <p>Please log in to continue</p>
+          <form id="login-form">
+            <div class="input-group">
+              <label for="email">Email</label>
+              <input
+                type="email"
+                id="email"
+                required
+                placeholder="admin@company.com or employee@company.com"
+              />
             </div>
+            <div class="input-group">
+              <label for="password">Password</label>
+              <input
+                type="password"
+                id="password"
+                required
+                value="password123"
+              />
+            </div>
+            <div
+              id="error-message"
+              style="
+                color: #ff4d4d;
+                margin-bottom: 1rem;
+                font-size: 0.875rem;
+                min-height: 1.2rem;
+              "
+            ></div>
+            <button type="submit" id="login-btn" class="btn btn-primary">
+              Sign in
+            </button>
+            <div
+              class="demo-hints"
+              style="margin-top: 1.5rem; font-size: 0.8rem; opacity: 0.7"
+            >
+              <p>Demo Admin: admin@company.com</p>
+              <p>Demo Employee: employee@company.com</p>
+            </div>
+          </form>
         </div>
+      </div>
 
-        <!-- HR Admin View -->
-        <div id="hr-admin-view" class="view hidden layout-dashboard">
-            <aside class="sidebar">
-                <div class="brand">LMS Admin</div>
-                <nav>
-                    <a href="#" class="nav-item active" data-target="admin-courses">Course Catalogue</a>
-                    <a href="#" class="nav-item" data-target="admin-assignments">Assignments</a>
-                    <a href="#" class="nav-item" data-target="admin-skill-gap">Skill Gap Dashboard</a>
-                </nav>
-                <div class="user-info">
-                    <span id="hr-user-name"></span>
-                    <button id="hr-logout-btn" class="btn btn-logout">Logout</button>
+      <div id="hr-admin-view" class="view hidden layout-dashboard">
+        <aside class="sidebar">
+          <div class="brand">LMS Admin</div>
+          <nav>
+            <a href="#" class="nav-item active" data-target="admin-courses"
+              >Course Catalogue</a
+            >
+            <a href="#" class="nav-item" data-target="admin-assignments"
+              >Assignments</a
+            >
+            <a href="#" class="nav-item" data-target="admin-skill-gap"
+              >Skill Gap Dashboard</a
+            >
+          </nav>
+          <div class="user-info">
+            <span id="hr-user-name">Admin User</span>
+            <button id="hr-logout-btn" class="btn btn-logout">Logout</button>
+          </div>
+        </aside>
+        <main class="main-content" id="hr-main-content">
+          <section id="admin-courses" class="panel">
+            <div class="panel-header">
+              <h2>Course Catalogue</h2>
+              <button id="btn-create-course" class="btn btn-primary">
+                Create Course
+              </button>
+            </div>
+            <div class="card">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Description</th>
+                    <th>Video URL</th>
+                    <th>Passing Score</th>
+                    <th>Assigned Roles</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="course-table-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="admin-assignments" class="panel hidden">
+            <div class="panel-header">
+              <h2>Course Assignments</h2>
+            </div>
+            <div class="card">
+              <form id="assignment-form" class="form-grid">
+                <div class="input-group">
+                  <label for="assign-course">Select Course</label>
+                  <select id="assign-course" required>
+                    <option value="">-- Select Course --</option>
+                  </select>
                 </div>
-            </aside>
-            <main class="main-content" id="hr-main-content">
-                <!-- Course Catalogue Panel -->
-                <section id="admin-courses" class="panel">
-                    <div class="panel-header">
-                        <h2>Course Catalogue</h2>
-                        <button id="btn-create-course" class="btn btn-primary">Create Course</button>
-                    </div>
-                    <div class="card">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Title</th>
-                                    <th>Description</th>
-                                    <th>Video URL</th>
-                                    <th>Passing Score</th>
-                                    <th>Assigned Roles</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="course-table-body"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <!-- Assignments Panel -->
-                <section id="admin-assignments" class="panel hidden">
-                    <div class="panel-header">
-                        <h2>Course Assignments</h2>
-                    </div>
-                    <div class="card">
-                        <form id="assignment-form" class="form-grid">
-                            <div class="input-group">
-                                <label for="assign-course">Select Course</label>
-                                <select id="assign-course" required></select>
-                            </div>
-                            <div class="input-group">
-                                <label for="assign-target">Assign To</label>
-                                <select id="assign-target" required>
-                                    <option value="role:All">All Employees</option>
-                                    <option value="role:Engineering">Engineering Dept</option>
-                                    <option value="role:Marketing">Marketing Dept</option>
-                                    <!-- Dynamic employee options added here -->
-                                </select>
-                            </div>
-                            <div class="input-group">
-                                <label for="assign-due-date">Due Date</label>
-                                <input type="date" id="assign-due-date" required>
-                            </div>
-                            <div class="input-group align-bottom">
-                                <button type="submit" class="btn btn-primary">Assign Course</button>
-                            </div>
-                        </form>
-                    </div>
-                </section>
-
-                <!-- Skill Gap Dashboard Panel -->
-                <section id="admin-skill-gap" class="panel hidden">
-                    <div class="panel-header">
-                        <h2>Skill Gap Dashboard</h2>
-                    </div>
-                    <div class="card">
-                        <h3>Employee Status Matrix</h3>
-                        <div class="table-container">
-                            <table class="matrix-table" id="skill-matrix-table">
-                                <!-- Generated dynamically -->
-                            </table>
-                        </div>
-                    </div>
-                    <div class="card mt-4">
-                        <h3>Department Completion Status</h3>
-                        <div id="skill-matrix-summary" class="bar-chart-container">
-                            <!-- Horizontal bar chart dynamically generated -->
-                        </div>
-                    </div>
-                </section>
-            </main>
-        </div>
-
-        <!-- Employee View -->
-        <div id="employee-view" class="view hidden layout-dashboard">
-            <aside class="sidebar">
-                <div class="brand">My Learning</div>
-                <nav>
-                    <a href="#" class="nav-item active" data-target="emp-courses">My Courses</a>
-                    <a href="#" class="nav-item" data-target="emp-certificates">Certificates</a>
-                </nav>
-                <div class="user-info">
-                    <span id="emp-user-name"></span>
-                    <button id="emp-logout-btn" class="btn btn-logout">Logout</button>
+                <div class="input-group">
+                  <label for="assign-target">Assign To</label>
+                  <select id="assign-target" required>
+                    <option value="role:All">All Employees</option>
+                    <option value="role:Engineering">Engineering Dept</option>
+                    <option value="role:Marketing">Marketing Dept</option>
+                  </select>
                 </div>
-            </aside>
-            <main class="main-content" id="emp-main-content">
-                <!-- My Courses Panel -->
-                <section id="emp-courses" class="panel">
-                    <div class="panel-header">
-                        <h2>My Assigned Courses</h2>
-                    </div>
-                    <div id="my-courses-list" class="courses-grid">
-                        <!-- Dynamically populated cards -->
-                    </div>
-                </section>
+                <div class="input-group">
+                  <label for="assign-due-date">Due Date</label>
+                  <input type="date" id="assign-due-date" required />
+                </div>
+                <div class="input-group align-bottom">
+                  <button type="submit" class="btn btn-primary">
+                    Assign Course
+                  </button>
+                </div>
+              </form>
+            </div>
+          </section>
 
-                <!-- Course Viewer Panel (Hidden by default) -->
-                <section id="emp-course-viewer" class="panel hidden">
-                    <div class="panel-header">
-                        <button id="btn-back-courses" class="btn btn-secondary">&larr; Back to Courses</button>
-                        <h2 id="viewer-course-title">Course Title</h2>
-                    </div>
-                    <div class="card viewer-card">
-                        <div class="video-container" id="video-container">
-                            <!-- iframe injected here -->
-                        </div>
-                        <div class="viewer-actions">
-                            <button id="btn-take-quiz" class="btn btn-primary btn-large">Take Quiz</button>
-                        </div>
-                    </div>
-                </section>
+          <section id="admin-skill-gap" class="panel hidden">
+            <div class="panel-header">
+              <h2>Skill Gap Dashboard</h2>
+            </div>
+            <div class="card">
+              <h3>Employee Status Matrix</h3>
+              <div class="table-container">
+                <table class="matrix-table" id="skill-matrix-table"></table>
+              </div>
+            </div>
+            <div class="card mt-4">
+              <h3>Department Completion Status</h3>
+              <div id="skill-matrix-summary" class="bar-chart-container"></div>
+            </div>
+          </section>
+        </main>
+      </div>
 
-                <!-- Quiz Engine Panel (Hidden by default) -->
-                <section id="emp-quiz-engine" class="panel hidden">
-                    <div class="panel-header">
-                        <h2 id="quiz-course-title">Quiz: Course Title</h2>
-                        <div class="progress-bar">
-                            <div id="quiz-progress-fill" class="progress-fill"></div>
-                        </div>
-                    </div>
-                    <div class="card quiz-card">
-                        <div id="quiz-question-container">
-                            <h3 id="quiz-question-text">Question text</h3>
-                            <div class="options-group" id="quiz-options-group">
-                                <!-- Options injected here -->
-                            </div>
-                        </div>
-                        <div class="quiz-actions">
-                            <button id="btn-quiz-next" class="btn btn-primary">Next / Submit</button>
-                        </div>
-                        <div id="quiz-result-container" class="hidden">
-                            <h3 id="quiz-result-title">Result</h3>
-                            <p id="quiz-result-score"></p>
-                            <p id="quiz-result-attempts"></p>
-                            <div class="quiz-actions mt-4">
-                                <button id="btn-quiz-retake" class="btn btn-secondary">Retake Quiz</button>
-                                <button id="btn-quiz-finish" class="btn btn-primary">Finish</button>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+      <div id="employee-view" class="view hidden layout-dashboard">
+        <aside class="sidebar">
+          <div class="brand">My Learning</div>
+          <nav>
+            <a href="#" class="nav-item active" data-target="emp-courses"
+              >My Courses</a
+            >
+            <a href="#" class="nav-item" data-target="emp-certificates"
+              >Certificates</a
+            >
+          </nav>
+          <div class="user-info">
+            <span id="emp-user-name">Employee User</span>
+            <button id="emp-logout-btn" class="btn btn-logout">Logout</button>
+          </div>
+        </aside>
+        <main class="main-content" id="emp-main-content">
+          <section id="emp-courses" class="panel">
+            <div class="panel-header">
+              <h2>My Assigned Courses</h2>
+            </div>
+            <div id="my-courses-list" class="courses-grid"></div>
+          </section>
 
-                <!-- Certificates Panel -->
-                <section id="emp-certificates" class="panel hidden">
-                    <div class="panel-header">
-                        <h2>My Certificates</h2>
-                    </div>
-                    <div id="certificate-list" class="certificate-grid">
-                        <!-- Dynamically populated certificate cards -->
-                    </div>
+          <section id="emp-course-viewer" class="panel hidden">
+            <div class="panel-header">
+              <button id="btn-back-courses" class="btn btn-secondary">
+                &larr; Back to Courses
+              </button>
+              <h2 id="viewer-course-title">Course Title</h2>
+            </div>
+            <div class="card viewer-card">
+              <div class="video-container" id="video-container"></div>
+              <div class="viewer-actions">
+                <button id="btn-take-quiz" class="btn btn-primary btn-large">
+                  Take Quiz
+                </button>
+              </div>
+            </div>
+          </section>
 
-                    <div class="card mt-4">
-                        <h3>Verify Certificate</h3>
-                        <div class="form-grid">
-                            <div class="input-group">
-                                <label for="verify-cert-id">Certificate ID</label>
-                                <div class="verify-input-wrapper" style="display:flex; gap:0.5rem;">
-                                    <input type="text" id="verify-cert-id" placeholder="CERT-XXXXX" style="flex:1;">
-                                    <button id="btn-verify-cert" class="btn btn-secondary">Verify</button>
-                                </div>
-                            </div>
-                            <div id="verify-result" class="verify-result hidden"></div>
-                        </div>
-                    </div>
-                </section>
-            </main>
-        </div>
+          <section id="emp-quiz-engine" class="panel hidden">
+            <div class="panel-header">
+              <h2 id="quiz-course-title">Quiz</h2>
+              <div class="progress-bar">
+                <div id="quiz-progress-fill" class="progress-fill"></div>
+              </div>
+            </div>
+            <div class="card quiz-card">
+              <div id="quiz-question-container">
+                <h3 id="quiz-question-text">Question text</h3>
+                <div class="options-group" id="quiz-options-group"></div>
+              </div>
+              <div class="quiz-actions">
+                <button id="btn-quiz-next" class="btn btn-primary">
+                  Next Question
+                </button>
+              </div>
+              <div id="quiz-result-container" class="hidden">
+                <h3 id="quiz-result-title">Result</h3>
+                <p id="quiz-result-score"></p>
+                <p id="quiz-result-attempts"></p>
+                <div class="quiz-actions mt-4">
+                  <button id="btn-quiz-retake" class="btn btn-secondary">
+                    Retake Quiz
+                  </button>
+                  <button id="btn-quiz-finish" class="btn btn-primary">
+                    Finish
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="emp-certificates" class="panel hidden">
+            <div class="panel-header">
+              <h2>My Certificates</h2>
+            </div>
+            <div id="certificate-list" class="certificate-grid"></div>
+
+            <div class="card mt-4">
+              <h3>Verify Certificate</h3>
+              <div class="form-grid">
+                <div class="input-group">
+                  <label for="verify-cert-id">Certificate ID</label>
+                  <div style="display: flex; gap: 0.5rem">
+                    <input
+                      type="text"
+                      id="verify-cert-id"
+                      placeholder="CERT-XXXXX"
+                      style="flex: 1"
+                    />
+                    <button id="btn-verify-cert" class="btn btn-secondary">
+                      Verify
+                    </button>
+                  </div>
+                </div>
+                <div
+                  id="verify-result"
+                  class="verify-result hidden"
+                  style="margin-top: 1rem"
+                ></div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
 
-    <!-- Modals -->
-    <!-- Create Course Modal -->
     <div id="create-course-modal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
@@ -265,54 +296,52 @@
                         <input type="text" id="new-course-roles" placeholder="Engineering, Marketing" required>
                     </div>
 
-                    <hr class="my-4">
-                    <h3>Quiz Builder</h3>
-                    <div id="quiz-builder-questions">
-                        <!-- Questions added here dynamically -->
-                    </div>
-                    <button type="button" id="btn-add-question" class="btn btn-secondary btn-small mt-2">+ Add
-                        Question</button>
-
-                    <div class="modal-footer mt-4">
-                        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Save Course</button>
-                    </div>
-                </form>
+            <div
+              style="
+                border-top: 1px solid #eee;
+                margin-top: 1.5rem;
+                padding-top: 1rem;
+              "
+            >
+              <h3 style="margin-bottom: 0.5rem">Quiz Builder</h3>
+              <div id="quiz-builder-questions"></div>
+              <button
+                type="button"
+                id="btn-add-question"
+                class="btn btn-secondary btn-small"
+                style="margin-top: 1rem"
+              >
+                + Add Question
+              </button>
             </div>
+
+            <div
+              class="modal-footer"
+              style="
+                margin-top: 2rem;
+                display: flex;
+                justify-content: flex-end;
+                gap: 1rem;
+              "
+            >
+              <button type="button" class="btn btn-secondary modal-close">
+                Cancel
+              </button>
+              <button type="submit" class="btn btn-primary">Save Course</button>
+            </div>
+          </form>
         </div>
+      </div>
     </div>
 
-    <!-- Printable Certificate View (Used by window.print()) -->
-    <div id="printable-certificate" class="printable-only">
-        <div class="cert-border">
-            <div class="cert-content">
-                <h1>Certificate of Completion</h1>
-                <p>This is to certify that</p>
-                <h2 id="print-cert-name">Employee Name</h2>
-                <p>has successfully completed the course</p>
-                <h3 id="print-cert-course">Course Title</h3>
-                <div class="cert-footer">
-                    <div>
-                        <p>Date: <span id="print-cert-date">YYYY-MM-DD</span></p>
-                    </div>
-                    <div>
-                        <p>Certificate ID: <span id="print-cert-id">CERT-XXX</span></p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Import Map for AWS Amplify -->
     <script type="importmap">
-    {
+      {
         "imports": {
-            "aws-amplify": "https://esm.sh/aws-amplify@6",
-            "aws-amplify/auth": "https://esm.sh/aws-amplify@6/auth"
+          "aws-amplify": "https://esm.sh/aws-amplify@6",
+          "aws-amplify/auth": "https://esm.sh/aws-amplify@6/auth"
         }
-    }
+      }
     </script>
-    <script type="module" src="app.js?v=4"></script>
-</body>
-
+    <script type="module" src="app.js?v=5"></script>
+  </body>
 </html>
