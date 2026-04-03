@@ -475,19 +475,7 @@ function renderCourseTable() {
         ? roleValue.trim()
         : "All";
 
-    const videoUrls = Array.isArray(course.video_url)
-      ? course.video_url
-      : course.video_url
-        ? [course.video_url]
-        : [];
-
-    const videoUrlsAlt = Array.isArray(course.videoUrl)
-      ? course.videoUrl
-      : course.videoUrl
-        ? [course.videoUrl]
-        : [];
-
-    const allVideoUrls = [...videoUrls, ...videoUrlsAlt].filter(url => url && url.trim());
+    const allVideoUrls = getCourseVideoUrls(course);
 
     let videoDisplay = "No videos";
     if (allVideoUrls.length === 1) {
@@ -858,7 +846,7 @@ function getVideoEmbedUrl(rawUrl) {
 function downloadCertificate(course) {
     const employeeName = state.currentUser.name || "Employee";
     const courseTitle = course.title || "Course";
-    const certId = course.cert_id || "N/A";
+    const certId = course.cert_id || course.course_id || "Pending certificate generation";
     const date = new Date().toLocaleDateString("en-US", {
         year: "numeric",
         month: "long",
@@ -1032,6 +1020,25 @@ function downloadCertificate(course) {
     certWindow.document.close();
 }
 
+function getCourseVideoUrls(course) {
+  const urls = [];
+  if (course.video_urls) {
+    if (Array.isArray(course.video_urls)) urls.push(...course.video_urls);
+    else if (typeof course.video_urls === 'string') urls.push(course.video_urls);
+  }
+  if (course.video_url) {
+    if (Array.isArray(course.video_url)) urls.push(...course.video_url);
+    else if (typeof course.video_url === 'string') urls.push(course.video_url);
+  }
+  if (course.videoUrl) {
+    if (Array.isArray(course.videoUrl)) urls.push(...course.videoUrl);
+    else if (typeof course.videoUrl === 'string') urls.push(course.videoUrl);
+  }
+  return urls
+    .map((u) => (typeof u === 'string' ? u.trim() : ''))
+    .filter((u) => u);
+}
+
 function renderMyCourses() {
   UI.employee.coursesList.innerHTML = "";
   const myCourses = state.courses || [];
@@ -1109,20 +1116,7 @@ function openCourseViewer(courseId) {
 
   UI.employee.viewerTitle.textContent = course.title;
 
-  // Handle multiple video URLs (array) or single URL (string)
-  const videoUrls = Array.isArray(course.video_url)
-    ? course.video_url
-    : course.video_url
-      ? [course.video_url]
-      : [];
-
-  const videoUrlsAlt = Array.isArray(course.videoUrl)
-    ? course.videoUrl
-    : course.videoUrl
-      ? [course.videoUrl]
-      : [];
-
-  const allVideoUrls = [...videoUrls, ...videoUrlsAlt].filter(url => url && url.trim());
+  const allVideoUrls = getCourseVideoUrls(course);
 
   if (allVideoUrls.length > 0) {
     // Create container for multiple videos
@@ -1375,7 +1369,7 @@ async function finishQuiz() {
 // ✅ Replace the entire conflicted block with this
 function renderCertificates() {
   UI.employee.certList.innerHTML = "";
-  const earned = (state.courses || []).filter((c) => c.cert_id);
+  const earned = (state.courses || []).filter((c) => c.cert_id || c.status === "Passed");
   if (earned.length === 0) {
     UI.employee.certList.innerHTML =
       "<p>No certificates earned yet. Pass a quiz to see them here!</p>";
@@ -1388,11 +1382,11 @@ function renderCertificates() {
     card.innerHTML = `
       <div class="cert-icon">🏆</div>
       <h3>${course.title}</h3>
-      <p>ID: <strong>${course.cert_id}</strong></p>
+      <p>ID: <strong>${course.cert_id || course.course_id || "Pending certificate"}</strong></p>
       <p class="text-muted">${course.due_date || ""}</p>
       ${course.s3_link
         ? `<a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>`
-        : `<p class="text-muted">Certificate ID: ${course.cert_id}</p>`
+        : `<p class="text-muted">Certificate ID: ${course.cert_id || course.course_id || "Pending certificate"}</p>`
       }
     `;
     UI.employee.certList.appendChild(card);
