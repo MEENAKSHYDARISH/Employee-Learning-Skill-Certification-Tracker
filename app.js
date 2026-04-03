@@ -459,7 +459,36 @@ async function initAdminDashboard() {
     state.users = Array.isArray(uRes) ? uRes : uRes.users || [];
   } catch (e) {
     console.warn("Could not load users list", e);
+    state.users = [];
   }
+
+  // Build assignments from each employee's dashboard to keep skill-gap accuracy
+  state.assignments = [];
+  const employeeUsers = state.users.filter((u) =>
+    u.role === "employee" || u.role === "Employee",
+  );
+
+  await Promise.all(
+    employeeUsers.map(async (user) => {
+      const employeeId = user.employee_id || user.id || user.userId;
+      if (!employeeId) return;
+      try {
+        const dash = await apiCall(`/employees/${employeeId}/dashboard`, "GET");
+        const courses = Array.isArray(dash?.courses) ? dash.courses : [];
+        courses.forEach((c) => {
+          state.assignments.push({
+            userId: user.id,
+            employeeId,
+            courseId: c.course_id,
+            status: (c.status || "not_started").toString().toLowerCase(),
+            dueDate: c.due_date || c.dueDate || "N/A",
+          });
+        });
+      } catch (e) {
+        console.warn(`Could not load dashboard for ${employeeId}:`, e.message);
+      }
+    }),
+  );
 
   renderCourseTable();
   populateAssignmentDropdowns();
@@ -799,6 +828,28 @@ async function initEmployeeDashboard() {
 
     if (candidateIds.size === 0) {
       throw new Error("No employee id available for dashboard lookup");
+    }
+
+    // Ensure user exists in backend users table (for dashboard join logic)
+    const primaryUserId = state.currentUser?.employee_id || state.currentUser?.id || state.currentUser?.userId;
+    if (primaryUserId) {
+      try {
+        await apiCall(`/users/${primaryUserId}`, "GET");
+      } catch (e) {
+        if (e.message && e.message.includes("API error 404")) {
+          // Attempt create user record if endpoint exists
+          try {
+            await apiCall("/users", "POST", {
+              employee_id: primaryUserId,
+              name: state.currentUser?.name || "Employee",
+              email: state.currentUser?.email || "",
+              role: "employee",
+            });
+          } catch (createErr) {
+            console.warn("Could not create user record, maybe endpoint doesn't exist", createErr);
+          }
+        }
+      }
     }
 
     let dash = null;
