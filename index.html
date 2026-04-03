@@ -247,8 +247,14 @@
                         <textarea id="new-course-desc" required rows="3"></textarea>
                     </div>
                     <div class="input-group">
-                        <label for="new-course-url">Video URL (YouTube/Vimeo iframe src)</label>
-                        <input type="url" id="new-course-url" required placeholder="https://www.youtube.com/embed/...">
+                        <label>Video URLs (YouTube/Vimeo iframe src)</label>
+                        <div id="video-urls-container">
+                            <div class="video-url-item">
+                                <input type="url" class="video-url-input" required placeholder="https://www.youtube.com/embed/...">
+                                <button type="button" class="btn btn-logout btn-small remove-video-url" style="display: none;">Remove</button>
+                            </div>
+                        </div>
+                        <button type="button" id="btn-add-video-url" class="btn btn-secondary btn-small mt-2">+ Add Another Video</button>
                     </div>
                     <div class="input-group">
                         <label for="new-course-score">Passing Score (0-100)</label>

@@ -271,6 +271,9 @@ function setupEventListeners() {
     .getElementById("btn-add-question")
     .addEventListener("click", addQuestionToBuilder);
   document
+    .getElementById("btn-add-video-url")
+    .addEventListener("click", addVideoUrlInput);
+  document
     .getElementById("create-course-form")
     .addEventListener("submit", handleCreateCourse);
   document
@@ -472,11 +475,32 @@ function renderCourseTable() {
         ? roleValue.trim()
         : "All";
 
+    const videoUrls = Array.isArray(course.video_url)
+      ? course.video_url
+      : course.video_url
+        ? [course.video_url]
+        : [];
+
+    const videoUrlsAlt = Array.isArray(course.videoUrl)
+      ? course.videoUrl
+      : course.videoUrl
+        ? [course.videoUrl]
+        : [];
+
+    const allVideoUrls = [...videoUrls, ...videoUrlsAlt].filter(url => url && url.trim());
+
+    let videoDisplay = "No videos";
+    if (allVideoUrls.length === 1) {
+      videoDisplay = `<a href="${allVideoUrls[0]}" target="_blank">1 Video</a>`;
+    } else if (allVideoUrls.length > 1) {
+      videoDisplay = `<a href="${allVideoUrls[0]}" target="_blank">${allVideoUrls.length} Videos</a>`;
+    }
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
             <td><strong>${course.title}</strong></td>
             <td>${course.description || ""}</td>
-            <td><a href="${course.video_url || course.videoUrl || "#"}" target="_blank">Link</a></td>
+            <td>${videoDisplay}</td>
             <td>${course.passingScore || "N/A"}%</td>
             <td>${roleDisplay}</td>
             <td><span class="badge status-blue">${course.questions ? course.questions.length : "?"} Qs</span></td>
@@ -551,7 +575,14 @@ async function handleAssignCourse(e) {
 function openCreateCourseModal() {
   document.getElementById("create-course-form").reset();
   document.getElementById("quiz-builder-questions").innerHTML = "";
+  document.getElementById("video-urls-container").innerHTML = `
+    <div class="video-url-item">
+      <input type="url" class="video-url-input" required placeholder="https://www.youtube.com/embed/...">
+      <button type="button" class="btn btn-logout btn-small remove-video-url" style="display: none;">Remove</button>
+    </div>
+  `;
   builderQCount = 0;
+  videoUrlCount = 0;
   addQuestionToBuilder();
   UI.modals.createCourse.classList.remove("hidden");
 }
@@ -594,13 +625,50 @@ function addQuestionToBuilder() {
   container.appendChild(qDiv);
 }
 
+let videoUrlCount = 0;
+function addVideoUrlInput() {
+  videoUrlCount++;
+  const container = document.getElementById("video-urls-container");
+  const urlDiv = document.createElement("div");
+  urlDiv.className = "video-url-item";
+  urlDiv.id = `video-url-${videoUrlCount}`;
+
+  urlDiv.innerHTML = `
+        <input type="url" class="video-url-input" required placeholder="https://www.youtube.com/embed/...">
+        <button type="button" class="btn btn-logout btn-small remove-video-url">Remove</button>
+    `;
+
+  container.appendChild(urlDiv);
+
+  // Update remove button visibility
+  updateRemoveButtonVisibility();
+
+  // Add event listener for remove button
+  urlDiv.querySelector(".remove-video-url").addEventListener("click", function() {
+    urlDiv.remove();
+    updateRemoveButtonVisibility();
+  });
+}
+
+function updateRemoveButtonVisibility() {
+  const urlItems = document.querySelectorAll(".video-url-item");
+  urlItems.forEach((item, index) => {
+    const removeBtn = item.querySelector(".remove-video-url");
+    if (urlItems.length > 1) {
+      removeBtn.style.display = "inline-block";
+    } else {
+      removeBtn.style.display = "none";
+    }
+  });
+}
+
 async function handleCreateCourse(e) {
   e.preventDefault();
   const title = document.getElementById("new-course-title").value;
   const desc = document.getElementById("new-course-desc").value;
-  const url = document.getElementById("new-course-url").value;
-  const score = parseInt(document.getElementById("new-course-score").value);
-  const roles = document.getElementById("new-course-roles").value.trim();
+  const videoUrls = Array.from(document.querySelectorAll(".video-url-input"))
+    .map(input => input.value.trim())
+    .filter(url => url.length > 0);
 
   const btn = e.target.querySelector('button[type="submit"]');
   const originalText = btn.textContent;
@@ -627,7 +695,7 @@ async function handleCreateCourse(e) {
       course_id: courseId,
       title,
       description: desc,
-      video_url: url,
+      video_url: videoUrls.length === 1 ? videoUrls[0] : videoUrls, // Send as array if multiple, string if single
       passingScore: score,
       assigned_roles: roles,
       questions,
@@ -785,6 +853,183 @@ function getVideoEmbedUrl(rawUrl) {
   return null;
 }
 
+function downloadCertificate(course) {
+    const employeeName = state.currentUser.name || "Employee";
+    const courseTitle = course.title || "Course";
+    const certId = course.cert_id || "N/A";
+    const date = new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+    });
+
+    const certWindow = window.open("", "_blank");
+    certWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Certificate of Completion</title>
+            <style>
+                body {
+                    font-family: 'Georgia', serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    margin: 0;
+                    background: #f5f5f5;
+                }
+                .certificate {
+                    width: 800px;
+                    padding: 60px;
+                    background: white;
+                    border: 15px solid #1a365d;
+                    outline: 5px solid #c9a84c;
+                    outline-offset: -25px;
+                    text-align: center;
+                    position: relative;
+                }
+                .logo {
+                    font-size: 1.2rem;
+                    color: #1a365d;
+                    font-weight: bold;
+                    margin-bottom: 20px;
+                    letter-spacing: 3px;
+                    text-transform: uppercase;
+                }
+                h1 {
+                    font-size: 2.8rem;
+                    color: #1a365d;
+                    margin: 0 0 10px 0;
+                    letter-spacing: 4px;
+                    text-transform: uppercase;
+                }
+                .subtitle {
+                    font-size: 1rem;
+                    color: #666;
+                    letter-spacing: 2px;
+                    margin-bottom: 40px;
+                    text-transform: uppercase;
+                }
+                .presented-to {
+                    font-size: 1rem;
+                    color: #666;
+                    margin-bottom: 10px;
+                    text-transform: uppercase;
+                    letter-spacing: 2px;
+                }
+                .employee-name {
+                    font-size: 2.5rem;
+                    color: #c9a84c;
+                    margin: 10px 0 30px 0;
+                    font-style: italic;
+                }
+                .completion-text {
+                    font-size: 1rem;
+                    color: #444;
+                    margin-bottom: 10px;
+                    line-height: 1.8;
+                }
+                .course-name {
+                    font-size: 1.6rem;
+                    color: #1a365d;
+                    font-weight: bold;
+                    margin: 10px 0 30px 0;
+                }
+                .divider {
+                    width: 200px;
+                    height: 2px;
+                    background: #c9a84c;
+                    margin: 30px auto;
+                }
+                .footer {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-top: 50px;
+                    padding-top: 20px;
+                    border-top: 1px solid #ddd;
+                }
+                .footer-item {
+                    text-align: center;
+                    flex: 1;
+                }
+                .footer-label {
+                    font-size: 0.75rem;
+                    color: #999;
+                    text-transform: uppercase;
+                    letter-spacing: 1px;
+                    margin-top: 8px;
+                }
+                .footer-value {
+                    font-size: 0.9rem;
+                    color: #333;
+                    font-weight: bold;
+                }
+                .seal {
+                    width: 80px;
+                    height: 80px;
+                    border-radius: 50%;
+                    background: #1a365d;
+                    color: white;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 2rem;
+                    margin: 20px auto;
+                }
+                @media print {
+                    body { background: white; }
+                    .certificate { border: 15px solid #1a365d; }
+                    .no-print { display: none; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="certificate">
+                <div class="logo">Employee Learning & Certification</div>
+                <div class="seal">🏆</div>
+                <h1>Certificate</h1>
+                <div class="subtitle">of Completion</div>
+                <div class="divider"></div>
+                <div class="presented-to">This certifies that</div>
+                <div class="employee-name">${employeeName}</div>
+                <div class="completion-text">has successfully completed the course</div>
+                <div class="course-name">${courseTitle}</div>
+                <div class="completion-text">with a passing score</div>
+                <div class="divider"></div>
+                <div class="footer">
+                    <div class="footer-item">
+                        <div class="footer-value">${date}</div>
+                        <div class="footer-label">Date of Completion</div>
+                    </div>
+                    <div class="footer-item">
+                        <div class="footer-value">${certId}</div>
+                        <div class="footer-label">Certificate ID</div>
+                    </div>
+                    <div class="footer-item">
+                        <div class="footer-value">HR Admin</div>
+                        <div class="footer-label">Authorized By</div>
+                    </div>
+                </div>
+                <div style="margin-top:20px">
+                    <button class="no-print" onclick="window.print()" 
+                        style="padding:10px 30px;background:#1a365d;color:white;border:none;
+                        border-radius:5px;font-size:1rem;cursor:pointer;margin-right:10px">
+                        🖨️ Print / Save as PDF
+                    </button>
+                    <button class="no-print" onclick="window.close()"
+                        style="padding:10px 30px;background:#666;color:white;border:none;
+                        border-radius:5px;font-size:1rem;cursor:pointer">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </body>
+        </html>
+    `);
+    certWindow.document.close();
+}
+
 function renderMyCourses() {
   UI.employee.coursesList.innerHTML = "";
   const myCourses = state.courses || [];
@@ -829,7 +1074,10 @@ function renderMyCourses() {
             </div>
             ${
               statusLabel === "Passed"
-                ? `<a href="${course.s3_link || "#"}" target="_blank" class="btn btn-success">Download Certificate</a>`
+                ? `<button class="btn btn-success btn-download-cert" 
+                      data-course-id="${course.course_id}">
+                      🏆 View Certificate
+                   </button>`
                 : attempts >= 3
                   ? `<button class="btn btn-secondary" disabled>Max Attempts Reached</button>`
                   : `<button class="btn btn-primary btn-view-course" data-course-id="${course.course_id}">Go to Course</button>`
@@ -843,23 +1091,76 @@ function renderMyCourses() {
       openCourseViewer(e.target.dataset.courseId),
     );
   });
+
+  document.querySelectorAll(".btn-download-cert").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+        const courseId = e.target.dataset.courseId;
+        const course = (state.courses || []).find(c => c.course_id === courseId);
+        if (course) downloadCertificate(course);
+    });
+  });
 }
 
 function openCourseViewer(courseId) {
   const course = (state.courses || []).find((c) => c.course_id === courseId);
   if (!course) return;
 
-  const embedUrl = getVideoEmbedUrl(course.video_url || course.videoUrl || "");
-
   UI.employee.viewerTitle.textContent = course.title;
-  if (embedUrl) {
-    UI.employee.videoContainer.innerHTML = `<iframe src="${embedUrl}" frameborder="0" allowfullscreen></iframe>`;
-  } else if (course.video_url || course.videoUrl) {
-    UI.employee.videoContainer.innerHTML = `
-            <p>This video cannot be embedded. <a href="${course.video_url || course.videoUrl}" target="_blank" rel="noopener">Open in new tab</a></p>
-        `;
+
+  // Handle multiple video URLs (array) or single URL (string)
+  const videoUrls = Array.isArray(course.video_url)
+    ? course.video_url
+    : course.video_url
+      ? [course.video_url]
+      : [];
+
+  const videoUrlsAlt = Array.isArray(course.videoUrl)
+    ? course.videoUrl
+    : course.videoUrl
+      ? [course.videoUrl]
+      : [];
+
+  const allVideoUrls = [...videoUrls, ...videoUrlsAlt].filter(url => url && url.trim());
+
+  if (allVideoUrls.length > 0) {
+    // Create container for multiple videos
+    let videoHTML = '';
+
+    if (allVideoUrls.length === 1) {
+      // Single video - use existing logic
+      const embedUrl = getVideoEmbedUrl(allVideoUrls[0]);
+      if (embedUrl) {
+        videoHTML = `<iframe src="${embedUrl}" frameborder="0" allowfullscreen></iframe>`;
+      } else {
+        videoHTML = `<p>This video cannot be embedded. <a href="${allVideoUrls[0]}" target="_blank" rel="noopener">Open in new tab</a></p>`;
+      }
+    } else {
+      // Multiple videos - create a playlist-style layout
+      videoHTML = '<div class="video-playlist">';
+      allVideoUrls.forEach((url, index) => {
+        const embedUrl = getVideoEmbedUrl(url);
+        if (embedUrl) {
+          videoHTML += `
+            <div class="video-item">
+              <h4>Video ${index + 1}</h4>
+              <iframe src="${embedUrl}" frameborder="0" allowfullscreen></iframe>
+            </div>
+          `;
+        } else {
+          videoHTML += `
+            <div class="video-item">
+              <h4>Video ${index + 1}</h4>
+              <p>This video cannot be embedded. <a href="${url}" target="_blank" rel="noopener">Open in new tab</a></p>
+            </div>
+          `;
+        }
+      });
+      videoHTML += '</div>';
+    }
+
+    UI.employee.videoContainer.innerHTML = videoHTML;
   } else {
-    UI.employee.videoContainer.innerHTML = `<p>No video URL provided for this course.</p>`;
+    UI.employee.videoContainer.innerHTML = `<p>No video URLs provided for this course.</p>`;
   }
 
   state.activeQuiz = {

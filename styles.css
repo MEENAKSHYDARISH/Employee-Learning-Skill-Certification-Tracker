@@ -622,6 +622,22 @@ h4 {
     height: 100%;
 }
 
+/* Video URL Management in Course Creation */
+.video-url-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.video-url-item .video-url-input {
+    flex: 1;
+}
+
+.video-url-item .remove-video-url {
+    flex-shrink: 0;
+}
+
 .viewer-actions {
     padding: 1.5rem;
     display: flex;
