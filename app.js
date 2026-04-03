@@ -1021,8 +1021,8 @@ async function finishQuiz() {
       },
     );
 
-    // ✅ FIX 4: Backend returns res.passed as boolean
-    passed = res.passed === true;
+    // ✅ Backward-compatible: check both res.passed and res.status
+    passed = res.passed === true || res.status === "passed";
     score = res.score || 0;
     attempts = res.attempts ?? 0;
     cert_id = res.cert_id || null;
