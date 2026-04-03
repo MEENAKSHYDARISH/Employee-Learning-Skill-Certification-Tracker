@@ -666,6 +666,8 @@ async function handleCreateCourse(e) {
   e.preventDefault();
   const title = document.getElementById("new-course-title").value;
   const desc = document.getElementById("new-course-desc").value;
+  const score = parseInt(document.getElementById("new-course-score").value, 10) || 70;
+  const roles = document.getElementById("new-course-roles").value.trim();
   const videoUrls = Array.from(document.querySelectorAll(".video-url-input"))
     .map(input => input.value.trim())
     .filter(url => url.length > 0);
