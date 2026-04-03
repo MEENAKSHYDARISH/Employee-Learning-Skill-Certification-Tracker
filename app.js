@@ -760,7 +760,9 @@ function renderSkillGapDashboard() {
    ==================================== */
 async function initEmployeeDashboard() {
     try {
-        const dash = await apiCall(`/employees/${state.currentUser.id}/dashboard`, 'GET');
+        // ✅ Use employee_id first, fall back to id
+        const employeeId = state.currentUser.employee_id || state.currentUser.id;
+        const dash = await apiCall(`/employees/${employeeId}/dashboard`, 'GET');
         state.employeeDashboard = dash;
         state.courses = Array.isArray(dash?.courses) ? dash.courses : [];
     } catch(e) {
@@ -1068,7 +1070,8 @@ async function finishQuiz() {
 
 function renderCertificates() {
     UI.employee.certList.innerHTML = '';
-    const earned = (state.courses || []).filter(c => c.cert_id && c.s3_link);
+    // ✅ removed && c.s3_link — show cert even without PDF link
+    const earned = (state.courses || []).filter(c => c.cert_id);
     if (earned.length === 0) {
         UI.employee.certList.innerHTML = '<p>No certificates earned yet.</p>';
         return;
@@ -1082,7 +1085,10 @@ function renderCertificates() {
             <h3>${course.title}</h3>
             <p>ID: <strong>${course.cert_id}</strong></p>
             <p class="text-muted">${course.due_date || ''}</p>
-            <a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>
+            ${course.s3_link
+                ? `<a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>`
+                : `<p class="text-muted">Certificate ID: ${course.cert_id}</p>`
+            }
         `;
         UI.employee.certList.appendChild(card);
     });
