@@ -1,179 +1,286 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
-  GetCommand,
   PutCommand,
+  ScanCommand,
+  GetCommand,
+  BatchWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
-import crypto from "crypto";
+import { randomUUID, createHash } from "crypto"; // ✅ createHash added
 
-function createPdfBuffer({ userName, courseTitle, certId, date }) {
-  const pageWidth = 842;
-  const pageHeight = 595;
-  const escapeText = (text) =>
-    text
-      .replace(/\\/g, "\\\\")
-      .replace(/\(/g, "\\(")
-      .replace(/\)/g, "\\)");
-
-  const lines = [
-    { size: 40, y: 520, text: "CERTIFICATE OF COMPLETION" },
-    { size: 20, y: 470, text: "This is to certify that" },
-    { size: 30, y: 430, text: userName },
-    { size: 20, y: 380, text: `has successfully passed ${courseTitle}` },
-    { size: 12, y: 340, text: `Date: ${date} | Certificate ID: ${certId}` },
-  ];
-
-  const contentLines = lines
-    .map(
-      (line) =>
-        `/F1 ${line.size} Tf\n100 ${line.y} Td\n(${escapeText(
-          line.text,
-        )}) Tj`,
-    )
-    .join("\n");
-
-  const content = `q\n1 w\n20 20 ${pageWidth - 40} ${pageHeight - 40} re\nS\nQ\nBT\n${contentLines}\nET\n`;
-  const contentBytes = Buffer.from(content, "utf8");
-
-  const header = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
-  const objects = [];
-
-  objects.push(
-    `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`,
-  );
-  objects.push(
-    `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`,
-  );
-  objects.push(
-    `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
-  );
-  objects.push(
-    `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`,
-  );
-  objects.push(
-    `5 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n${content}endstream\nendobj\n`,
-  );
-
-  const buffers = [Buffer.from(header, "utf8")];
-  const offsets = [0];
-  let position = Buffer.byteLength(header, "utf8");
-
-  for (const obj of objects) {
-    offsets.push(position);
-    const buffer = Buffer.from(obj, "utf8");
-    buffers.push(buffer);
-    position += buffer.length;
-  }
-
-  const xrefStart = position;
-  let xref = "xref\n0 6\n";
-  xref += `0000000000 65535 f \n`;
-  for (let i = 1; i < offsets.length; i++) {
-    xref += `${offsets[i].toString().padStart(10, "0")} 00000 n \n`;
-  }
-
-  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
-  buffers.push(Buffer.from(xref + trailer, "utf8"));
-
-  return Buffer.concat(buffers);
-}
-
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const s3 = new S3Client({});
-const ses = new SESClient({});
+const ddbClient = new DynamoDBClient({});
+const docClient = DynamoDBDocumentClient.from(ddbClient);
+const sesClient = new SESClient({ region: process.env.AWS_REGION || "ap-south-1" });
+const SES_SENDER = process.env.SES_SENDER;
 
 export const handler = async (event) => {
-  // Add a console log to see exactly what is arriving
-  console.log("Event received:", JSON.stringify(event));
-
-  // Destructure with fallbacks to avoid the "not defined" error
-  const employee_id = event.employee_id;
-  const course_id = event.course_id;
-
-  if (!employee_id || !course_id) {
-    console.error("Missing IDs in event!");
-    return { status: "failed", error: "Missing employee_id or course_id" };
-  }
+  const { httpMethod, resource, pathParameters } = event;
+  const body = event.body ? JSON.parse(event.body) : {};
 
   try {
-    // 1. Fetch User & Course details for the PDF
-    const [userReq, courseReq] = await Promise.all([
-      ddb.send(new GetCommand({ TableName: "users", Key: { employee_id } })),
-      ddb.send(new GetCommand({ TableName: "courses", Key: { course_id } })),
-    ]);
+    // ROUTE 1: POST /courses (Create Course)
+    if (httpMethod === "POST" && resource === "/courses") {
+      const {
+        title,
+        description,
+        video_url,
+        assigned_roles,
+        passingScore,
+        questions,
+      } = body;
+      const course_id = randomUUID();
+      const normalizedPassingScore =
+        typeof passingScore === "number"
+          ? passingScore
+          : passingScore
+            ? Number(passingScore)
+            : undefined;
 
-    const userName = userReq.Item?.name || "Employee";
-    const courseTitle = courseReq.Item?.title || "Course";
-    const certId = crypto.randomUUID();
-    const date = new Date().toLocaleDateString();
-
-    // 2. Generate PDF in Memory
-    const pdfBuffer = createPdfBuffer({
-      userName,
-      courseTitle,
-      certId,
-      date,
-    });
-
-    // 3. Upload to S3
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.CERT_BUCKET,
-        Key: `certificates/${certId}.pdf`,
-        Body: pdfBuffer,
-        ContentType: "application/pdf",
-      }),
-    );
-
-    // 4. Create Pre-signed URL (Valid for 7 days)
-    const command = new GetObjectCommand({
-      Bucket: process.env.CERT_BUCKET,
-      Key: `certificates/${certId}.pdf`,
-    });
-    const downloadUrl = await getSignedUrl(s3, command, { expiresIn: 604800 });
-
-    // 5. Save to Certificates Table
-    await ddb.send(
-      new PutCommand({
-        TableName: "certificates",
-        Item: {
-          cert_id: certId,
-          employee_id,
-          course_id,
-          issued_at: date,
-          s3_key: `certificates/${certId}.pdf`,
-        },
-      }),
-    );
-
-    // 6. Send Email via SES
-    await ses.send(
-      new SendEmailCommand({
-        Source: process.env.SES_SENDER,
-        Destination: { ToAddresses: [userReq.Item.email] },
-        Message: {
-          Subject: {
-            Data: `Congratulations! Your Certificate for ${courseTitle}`,
+      await docClient.send(
+        new PutCommand({
+          TableName: "courses",
+          Item: {
+            course_id,
+            title,
+            description,
+            video_url,
+            passingScore: Number.isFinite(normalizedPassingScore)
+              ? normalizedPassingScore
+              : 70,
+            passing_score: Number.isFinite(normalizedPassingScore)
+              ? normalizedPassingScore
+              : 70,
+            assigned_roles: Array.isArray(assigned_roles)
+              ? assigned_roles[0]
+              : assigned_roles,
+            created_at: new Date().toISOString(),
           },
-          Body: {
-            Html: {
-              Data: `<h1>Great job!</h1><p>Download your certificate here: <a href="${downloadUrl}">Link</a></p>`,
+        }),
+      );
+
+      // ✅ Save questions WITH correct_answer_hash
+      if (Array.isArray(questions) && questions.length > 0) {
+        const writeReqs = questions.map((q) => {
+          const question_id = randomUUID();
+          const options = Array.isArray(q?.options) ? q.options : [];
+          const correct_answer = q?.correct_answer || q?.correctAnswer || "";
+
+          // ✅ Hash the correct answer for secure grading
+          const correct_answer_hash = createHash("sha256")
+            .update(correct_answer)
+            .digest("hex");
+
+          console.log(`Saving question: ${q?.text} | correct: ${correct_answer} | hash: ${correct_answer_hash}`);
+
+          return {
+            PutRequest: {
+              Item: {
+                course_id,
+                question_id,
+                text: q?.text || "",
+                options,
+                correct_answer,
+                correct_answer_hash, // ✅ this is what QuizSubmit uses to grade
+              },
             },
-          },
-        },
-      }),
-    );
+          };
+        });
 
-    return { status: "Certificate Sent", certId };
-  } catch (err) {
-    console.error(err);
-    throw err;
+        for (let i = 0; i < writeReqs.length; i += 25) {
+          const chunk = writeReqs.slice(i, i + 25);
+          await docClient.send(
+            new BatchWriteCommand({
+              RequestItems: { quiz_answers: chunk },
+            }),
+          );
+        }
+      }
+
+      return response(201, { message: "Course created successfully" });
+    }
+
+    // ROUTE 2: GET /courses (List Courses)
+    if (httpMethod === "GET" && resource === "/courses") {
+      const data = await docClient.send(
+        new ScanCommand({ TableName: "courses" }),
+      );
+      return response(200, data.Items);
+    }
+
+    // ROUTE 3: POST /courses/{id}/assign (Assign to Employees)
+    if (httpMethod === "POST" && resource === "/courses/{id}/assign") {
+      const courseId = pathParameters.id;
+      const { target, due_date } = body || {};
+
+      if (!courseId) {
+        return response(400, { error: "Missing course id" });
+      }
+
+      const courseData = await docClient.send(
+        new GetCommand({
+          TableName: "courses",
+          Key: { course_id: courseId },
+        }),
+      );
+      const course = courseData.Item;
+      if (!course) {
+        return response(404, { error: "Course not found" });
+      }
+
+      const usersData = await docClient.send(
+        new ScanCommand({ TableName: "users" }),
+      );
+      const allUsers = usersData.Items || [];
+
+      const normalize = (value) =>
+        typeof value === "string" ? value.trim().toLowerCase() : "";
+      const getEmployeeId = (user) =>
+        user?.employee_id || user?.id || user?.userId;
+      const getEmailAddress = (user) => {
+        const emailCandidate =
+          user?.email ||
+          user?.Email ||
+          user?.emailAddress ||
+          user?.username ||
+          user?.userName;
+        return typeof emailCandidate === "string" && emailCandidate.trim()
+          ? emailCandidate.trim()
+          : null;
+      };
+
+      const employees = allUsers.filter(
+        (u) => normalize(u?.role) === "employee",
+      );
+
+      let targetUsers = [];
+      if (typeof target === "string" && target.startsWith("user:")) {
+        const employeeId = target.slice("user:".length);
+        targetUsers = employees.filter(
+          (u) => getEmployeeId(u) === employeeId,
+        );
+      } else if (typeof target === "string" && target.startsWith("role:")) {
+        const roleName = target.slice("role:".length);
+        if (roleName === "All") {
+          targetUsers = employees;
+        } else {
+          const normalizedTarget = normalize(roleName);
+          targetUsers = employees.filter(
+            (u) =>
+              normalize(u?.department) === normalizedTarget ||
+              normalize(u?.role) === normalizedTarget ||
+              normalize(u?.asDept) === normalizedTarget,
+          );
+        }
+      } else if (course.assigned_roles) {
+        const normalizedAssignedRole = normalize(course.assigned_roles);
+        targetUsers = employees.filter(
+          (u) =>
+            normalize(u?.role) === normalizedAssignedRole ||
+            normalize(u?.department) === normalizedAssignedRole,
+        );
+      } else {
+        return response(400, { error: "Missing assignment target" });
+      }
+
+      const completionItems = targetUsers
+        .map((user) => {
+          const employeeId = getEmployeeId(user);
+          if (!employeeId) return null;
+          return {
+            PutRequest: {
+              Item: {
+                employee_id: employeeId,
+                course_id: courseId,
+                status: "not_started",
+                attempt_count: 0,
+                due_date: due_date || "None",
+              },
+            },
+          };
+        })
+        .filter(Boolean);
+
+      if (completionItems.length === 0) {
+        return response(400, {
+          error: "No valid employee targets found for this assignment",
+          assigned: targetUsers.length,
+        });
+      }
+
+      for (let i = 0; i < completionItems.length; i += 25) {
+        const chunk = completionItems.slice(i, i + 25);
+        await docClient.send(
+          new BatchWriteCommand({
+            RequestItems: { completions: chunk },
+          }),
+        );
+      }
+
+      if (!SES_SENDER) {
+        console.warn("SES_SENDER env variable is not configured.");
+      } else {
+        const emailRequests = targetUsers
+          .map((user) => ({ user, email: getEmailAddress(user) }))
+          .filter(({ email }) => email)
+          .map(({ user, email }) => ({
+            user,
+            payload: new SendEmailCommand({
+              Destination: { ToAddresses: [email] },
+              Message: {
+                Body: {
+                  Text: {
+                    Data: `Hi ${user.name || "there"}, you have been assigned: ${course.title}. View here: ${course.video_url}`,
+                  },
+                },
+                Subject: { Data: "New Course Assignment" },
+              },
+              Source: SES_SENDER,
+            }),
+          }));
+
+        const emailResults = await Promise.allSettled(
+          emailRequests.map(({ payload }) => sesClient.send(payload)),
+        );
+
+        emailResults.forEach((result, index) => {
+          if (result.status === "rejected") {
+            console.error(
+              "SES send failed for",
+              emailRequests[index]?.user?.email,
+              result.reason,
+            );
+          }
+        });
+
+        const emailSent = emailResults.filter(
+          (r) => r.status === "fulfilled",
+        ).length;
+        const emailFailed = emailResults.length - emailSent;
+
+        return response(200, {
+          message: `Assigned to ${targetUsers.length} employees. Emails sent: ${emailSent}, failed: ${emailFailed}`,
+        });
+      }
+
+      return response(200, {
+        message: `Assigned to ${targetUsers.length} employees.`,
+      });
+    }
+
+  } catch (error) {
+    console.error(error);
+    return response(500, { error: error.message });
   }
 };
+
+const response = (statusCode, body) => ({
+  statusCode,
+  headers: {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
+  },
+  body: JSON.stringify(body),
+});
