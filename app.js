@@ -103,7 +103,7 @@ async function apiCall(path, method = "GET", body = null) {
   const USERS_API_BASE_URL =
     "https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod";
   const LMS_API_BASE_URL =
-    "https://yxa4h8pija.execute-api.ap-south-1.amazonaws.com/backend";
+    "https://d193m0aukk.execute-api.ap-south-1.amazonaws.com/backend";
 
   const baseUrl = path.startsWith("/users")
     ? USERS_API_BASE_URL
