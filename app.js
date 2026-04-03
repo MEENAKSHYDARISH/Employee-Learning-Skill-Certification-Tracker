@@ -727,31 +727,16 @@ function renderSkillGapDashboard() {
 }
 
 /* ---- EMPLOYEE DASHBOARD ---- */
+// ✅ Replace the entire conflicted block with this
 async function initEmployeeDashboard() {
-<<<<<<< HEAD
-    try {
-        // ✅ Use employee_id first, fall back to id
-        const employeeId = state.currentUser.employee_id || state.currentUser.id;
-        const dash = await apiCall(`/employees/${employeeId}/dashboard`, 'GET');
-        state.employeeDashboard = dash;
-        state.courses = Array.isArray(dash?.courses) ? dash.courses : [];
-    } catch(e) {
-        console.error("Failed to load employee courses", e);
-        state.employeeDashboard = null;
-        state.courses = [];
-=======
   try {
-    const dash = await apiCall(
-      `/employees/${state.currentUser.id}/dashboard`,
-      "GET",
-    );
+    const employeeId = state.currentUser.employee_id || state.currentUser.id;
+    const dash = await apiCall(`/employees/${employeeId}/dashboard`, "GET");
     state.employeeDashboard = dash;
     state.courses = Array.isArray(dash?.courses) ? dash.courses : [];
 
-    // Update display name from dashboard data
     if (dash?.employee?.name && UI.employee.userName) {
       UI.employee.userName.textContent = dash.employee.name;
->>>>>>> 21b1fdcaa86c8e14f4ae997856864118e089e8d8
     }
   } catch (e) {
     console.error("Failed to load employee dashboard", e);
@@ -1036,8 +1021,8 @@ async function finishQuiz() {
       },
     );
 
-    // ✅ FIX 4: Backend returns res.status ("passed"/"failed"), not res.passed (boolean)
-    passed = res.status === "passed";
+    // ✅ FIX 4: Backend returns res.passed as boolean
+    passed = res.passed === true;
     score = res.score || 0;
     attempts = res.attempts ?? 0;
     cert_id = res.cert_id || null;
@@ -1084,43 +1069,29 @@ async function finishQuiz() {
 }
 
 /* ---- CERTIFICATES ---- */
+// ✅ Replace the entire conflicted block with this
 function renderCertificates() {
-<<<<<<< HEAD
-    UI.employee.certList.innerHTML = '';
-    // ✅ removed && c.s3_link — show cert even without PDF link
-    const earned = (state.courses || []).filter(c => c.cert_id);
-    if (earned.length === 0) {
-        UI.employee.certList.innerHTML = '<p>No certificates earned yet.</p>';
-        return;
-    }
-=======
   UI.employee.certList.innerHTML = "";
-  const earned = (state.courses || []).filter((c) => c.cert_id && c.s3_link);
+  const earned = (state.courses || []).filter((c) => c.cert_id);
   if (earned.length === 0) {
     UI.employee.certList.innerHTML =
       "<p>No certificates earned yet. Pass a quiz to see them here!</p>";
     return;
   }
->>>>>>> 21b1fdcaa86c8e14f4ae997856864118e089e8d8
 
   earned.forEach((course) => {
     const card = document.createElement("div");
     card.className = "cert-card";
     card.innerHTML = `
-            <div class="cert-icon">🏆</div>
-            <h3>${course.title}</h3>
-            <p>ID: <strong>${course.cert_id}</strong></p>
-<<<<<<< HEAD
-            <p class="text-muted">${course.due_date || ''}</p>
-            ${course.s3_link
-                ? `<a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>`
-                : `<p class="text-muted">Certificate ID: ${course.cert_id}</p>`
-            }
-=======
-            <p class="text-muted">${course.due_date || ""}</p>
-            <a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>
->>>>>>> 21b1fdcaa86c8e14f4ae997856864118e089e8d8
-        `;
+      <div class="cert-icon">🏆</div>
+      <h3>${course.title}</h3>
+      <p>ID: <strong>${course.cert_id}</strong></p>
+      <p class="text-muted">${course.due_date || ""}</p>
+      ${course.s3_link
+        ? `<a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>`
+        : `<p class="text-muted">Certificate ID: ${course.cert_id}</p>`
+      }
+    `;
     UI.employee.certList.appendChild(card);
   });
 }
