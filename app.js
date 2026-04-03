@@ -103,7 +103,7 @@ async function apiCall(path, method = "GET", body = null) {
   const USERS_API_BASE_URL =
     "https://m5whfs5ivf.execute-api.ap-south-1.amazonaws.com/prod";
   const LMS_API_BASE_URL =
-    "https://yxa4h8pija.execute-api.ap-south-1.amazonaws.com/backend";
+    "https://d193m0aukk.execute-api.ap-south-1.amazonaws.com/backend";
 
   const baseUrl = path.startsWith("/users")
     ? USERS_API_BASE_URL
@@ -727,16 +727,14 @@ function renderSkillGapDashboard() {
 }
 
 /* ---- EMPLOYEE DASHBOARD ---- */
+// ✅ Replace the entire conflicted block with this
 async function initEmployeeDashboard() {
   try {
-    const dash = await apiCall(
-      `/employees/${state.currentUser.id}/dashboard`,
-      "GET",
-    );
+    const employeeId = state.currentUser.employee_id || state.currentUser.id;
+    const dash = await apiCall(`/employees/${employeeId}/dashboard`, "GET");
     state.employeeDashboard = dash;
     state.courses = Array.isArray(dash?.courses) ? dash.courses : [];
 
-    // Update display name from dashboard data
     if (dash?.employee?.name && UI.employee.userName) {
       UI.employee.userName.textContent = dash.employee.name;
     }
@@ -1023,8 +1021,8 @@ async function finishQuiz() {
       },
     );
 
-    // ✅ FIX 4: Backend returns res.status ("passed"/"failed"), not res.passed (boolean)
-    passed = res.status === "passed";
+    // ✅ Backward-compatible: check both res.passed and res.status
+    passed = res.passed === true || res.status === "passed";
     score = res.score || 0;
     attempts = res.attempts ?? 0;
     cert_id = res.cert_id || null;
@@ -1071,9 +1069,10 @@ async function finishQuiz() {
 }
 
 /* ---- CERTIFICATES ---- */
+// ✅ Replace the entire conflicted block with this
 function renderCertificates() {
   UI.employee.certList.innerHTML = "";
-  const earned = (state.courses || []).filter((c) => c.cert_id && c.s3_link);
+  const earned = (state.courses || []).filter((c) => c.cert_id);
   if (earned.length === 0) {
     UI.employee.certList.innerHTML =
       "<p>No certificates earned yet. Pass a quiz to see them here!</p>";
@@ -1084,12 +1083,15 @@ function renderCertificates() {
     const card = document.createElement("div");
     card.className = "cert-card";
     card.innerHTML = `
-            <div class="cert-icon">🏆</div>
-            <h3>${course.title}</h3>
-            <p>ID: <strong>${course.cert_id}</strong></p>
-            <p class="text-muted">${course.due_date || ""}</p>
-            <a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>
-        `;
+      <div class="cert-icon">🏆</div>
+      <h3>${course.title}</h3>
+      <p>ID: <strong>${course.cert_id}</strong></p>
+      <p class="text-muted">${course.due_date || ""}</p>
+      ${course.s3_link
+        ? `<a href="${course.s3_link}" target="_blank" class="btn btn-primary mt-2">Download PDF</a>`
+        : `<p class="text-muted">Certificate ID: ${course.cert_id}</p>`
+      }
+    `;
     UI.employee.certList.appendChild(card);
   });
 }

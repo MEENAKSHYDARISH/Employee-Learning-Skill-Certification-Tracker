@@ -7,18 +7,36 @@ Globals:
     Timeout: 30
     MemorySize: 128
     Runtime: nodejs20.x
+<<<<<<< HEAD
+  Api:
+    Cors:
+      AllowOrigin: "*"
+      AllowMethods: "GET,POST,OPTIONS"
+      AllowHeaders: "Content-Type,Authorization"
+
+Resources:
+  ### API Gateway ###
+  LMSApi:
+=======
 
 Resources:
   ### Explicit API Definition to handle StageName and Global CORS ###
   LmsApi:
+>>>>>>> 21b1fdcaa86c8e14f4ae997856864118e089e8d8
     Type: AWS::Serverless::Api
     Properties:
       StageName: backend
       Cors:
+<<<<<<< HEAD
+        AllowOrigin: "*"
+        AllowMethods: "GET,POST,OPTIONS"
+        AllowHeaders: "Content-Type,Authorization"
+=======
         AllowOrigin: "'*'"
         AllowMethods: "'GET,POST,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization'"
 
+>>>>>>> 21b1fdcaa86c8e14f4ae997856864118e089e8d8
   ### 1. Course & User Management Function ###
   CourseFunction:
     Type: AWS::Serverless::Function
@@ -52,18 +70,21 @@ Resources:
         CreateCourse:
           Type: Api
           Properties:
+            RestApiId: !Ref LMSApi
             Path: /courses
             Method: post
             RestApiId: !Ref LmsApi
         ListCourses:
           Type: Api
           Properties:
+            RestApiId: !Ref LMSApi
             Path: /courses
             Method: get
             RestApiId: !Ref LmsApi
         AssignCourse:
           Type: Api
           Properties:
+            RestApiId: !Ref LMSApi
             Path: /courses/{id}/assign
             Method: post
             RestApiId: !Ref LmsApi
@@ -95,12 +116,14 @@ Resources:
         GetQuiz:
           Type: Api
           Properties:
+            RestApiId: !Ref LMSApi
             Path: /courses/{id}/quiz
             Method: get
             RestApiId: !Ref LmsApi
         SubmitQuiz:
           Type: Api
           Properties:
+            RestApiId: !Ref LMSApi
             Path: /courses/{id}/quiz/submit
             Method: post
             RestApiId: !Ref LmsApi
@@ -160,6 +183,7 @@ Resources:
         VerifyCert:
           Type: Api
           Properties:
+            RestApiId: !Ref LMSApi
             Path: /verify/{id}
             Method: get
             RestApiId: !Ref LmsApi
@@ -200,6 +224,7 @@ Resources:
         GetDashboard:
           Type: Api
           Properties:
+            RestApiId: !Ref LMSApi
             Path: /employees/{id}/dashboard
             Method: get
             RestApiId: !Ref LmsApi
@@ -207,4 +232,8 @@ Resources:
 Outputs:
   CourseApi:
     Description: "API Gateway endpoint URL for backend stage"
+<<<<<<< HEAD
+    Value: !Sub "https://${LMSApi}.execute-api.${AWS::Region}.amazonaws.com/backend/"
+=======
     Value: !Sub "https://${LmsApi}.execute-api.${AWS::Region}.amazonaws.com/backend/"
+>>>>>>> 21b1fdcaa86c8e14f4ae997856864118e089e8d8
